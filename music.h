@@ -20,5 +20,9 @@ class Music : public QMainWindow
 public:
     Music(QWidget *parent = nullptr);
     ~Music();
+
+private:
+    QPushButton *psButton;
+
 };
 #endif // MUSIC_H

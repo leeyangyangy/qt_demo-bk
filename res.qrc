@@ -2,4 +2,18 @@
     <qresource prefix="/">
         <file>style.qss</file>
     </qresource>
+    <qresource prefix="/music"/>
+    <qresource prefix="/icons">
+        <file>resources/icons/prev.png</file>
+        <file>resources/icons/next.png</file>
+        <file>resources/icons/checkbox_click.png</file>
+        <file>resources/icons/checkbox.png</file>
+        <file>resources/icons/paly.png</file>
+        <file>resources/icons/stop.png</file>
+        <file>resources/icons/switch-on.png</file>
+        <file>resources/icons/switch-off.png</file>
+        <file>resources/icons/help.png</file>
+        <file>exit.png</file>
+    </qresource>
+    <qresource prefix="/images"/>
 </RCC>

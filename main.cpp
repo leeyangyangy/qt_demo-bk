@@ -1,5 +1,5 @@
 #include "music.h"
-
+#include <QFile>
 #include <QApplication>
 
 int main(int argc, char *argv[])
