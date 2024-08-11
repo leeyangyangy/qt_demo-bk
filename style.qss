@@ -1,0 +1,23 @@
+QWidget {
+    background: "#eedc82"
+}
+
+QPushButton#btn_previous {
+    border-image: url(:/icons/resources/icons/prev.png);
+}
+
+QPushButton#btn_play {
+    border-image: url(:/icons/resources/icons/stop.png);
+}
+
+QPushButton#btn_play::hover {
+    border-image: url(:/icons/resources/icons/stop.png);
+}
+
+QPushButton#btn_play::checked {
+    border-image: url(:/icons/resources/icons/play.png);
+}
+
+QPushButton#btn_next {
+    border-image: url(:/icons/resources/icons/next.png);
+}

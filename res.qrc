@@ -8,12 +8,14 @@
         <file>resources/icons/next.png</file>
         <file>resources/icons/checkbox_click.png</file>
         <file>resources/icons/checkbox.png</file>
-        <file>resources/icons/paly.png</file>
+        <file>resources/icons/play.png</file>
         <file>resources/icons/stop.png</file>
         <file>resources/icons/switch-on.png</file>
         <file>resources/icons/switch-off.png</file>
         <file>resources/icons/help.png</file>
-        <file>exit.png</file>
+        <file>resources/icons/exit.png</file>
     </qresource>
-    <qresource prefix="/images"/>
+    <qresource prefix="/images">
+        <file>resources/images/cd.png</file>
+    </qresource>
 </RCC>
