@@ -1,0 +1,42 @@
+<RCC>
+    <!--icon-->
+    <qresource>
+        <file>svg/files.svg</file>
+        <file>svg/picture.svg</file>
+        <file>svg/camera.svg</file>
+        <file>svg/camera-reverse.svg</file>
+        <file>svg/video-on.svg</file>
+        <file>svg/video-off.svg</file>
+        <file>svg/modules.svg</file>
+        <file>svg/setting.svg</file>
+        <file>svg/help.svg</file>
+        <file>svg/save.svg</file>
+        <file>svg/sync.svg</file>
+        <file>svg/exit.svg</file>
+        <file>svg/new_conf.svg</file>
+        <file>svg/open_conf.svg</file>
+        <file>svg/update.svg</file>
+        <file>svg/update-log.svg</file>
+        <file>svg/author.svg</file>
+        <file>svg/hourglass.svg</file>
+        <file>svg/rules.svg</file>
+    </qresource>
+
+    <!--png-->
+    <qresource>
+        <file>png/logo.png</file>
+        <file>png/filesync.png</file>
+    </qresource>
+
+    <!-- prefix="/lang 以下file中的路径lang就相当于是前缀，根据实际修改-->
+    <qresource>
+        <file>lang/test.txt</file>
+    </qresource>
+
+    <!-- prefix="/qss 以下file中的路径lang就相当于是前缀，添加 qresource > file时，请确保实际文件存放在正确位置，如果 qss/test.txt 不存在，编译时会报错-->
+    <!-- file>qss/test.txt</file ninja: error: 'project_name/resources/qss/test.txt', needed by 'qrc_res.cpp', missing and no known rule to make it-->
+    <qresource>
+        <file>qss/style.qss</file>
+    </qresource>
+
+</RCC>

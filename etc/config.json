@@ -1,0 +1,12 @@
+{
+    "workspace": [
+        {
+            "file1": "D:/Coding/CLionProjects/FilesSync/cmake-build-debug/src/CMakeFiles",
+            "file2": "D:/Coding/CLionProjects/FilesSync/cmake-build-debug/src/CMakeFiles"
+        },
+        {
+            "file1": "D:/Coding/CLionProjects/FilesSync/cmake-build-debug/src/styles",
+            "file2": "D:/Coding/CLionProjects/FilesSync/cmake-build-debug/src/Qt5Widgetsd.dll"
+        }
+    ]
+}
