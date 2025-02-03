@@ -6,15 +6,29 @@ set(QRC_SOURCE_FILE ../resources/res.qrc)
 qt5_add_resources(QT_RESOURCES ${QRC_SOURCE_FILE})
 
 # 定义目标
-add_executable(${PROJECT_NAME} main.cpp widget.cpp System.cpp widget.ui ${QT_RESOURCES} ../icon.rc
+add_executable(${PROJECT_NAME}
+        widget.ui
+        ${QT_RESOURCES}
+        ../icon.rc
+        main.cpp
+        widget.cpp
+        monitor/TriggerMonitor.cpp
         utils/regex/re.c
         task/FileMonitor.cpp
         task/FileProcessTask.cpp
-        task/SyncTask.h
+        task/SyncTask.cpp
+        init/Env.cpp
+)
+
+# add QXlsx libs
+target_include_directories(${PROJECT_NAME}
+        PRIVATE
+        ${CMAKE_SOURCE_DIR}/include
+        ${CMAKE_SOURCE_DIR}/libs/QXlsx/QXlsx/header
 )
 
 # 链接 Qt 库
-target_link_libraries(${PROJECT_NAME} Qt5::Core Qt5::Gui Qt5::Widgets Qt5::Svg Qt5::Network Qt5::Concurrent)
+target_link_libraries(${PROJECT_NAME} Qt5::Core Qt5::Gui Qt5::Widgets Qt5::Svg Qt5::Network Qt5::Concurrent QXlsx)
 
 # 其他逻辑可以继续使用 ${PROJECT_NAME} 来自动绑定目标
 # MinGW 运行时 DLL 安装路径
