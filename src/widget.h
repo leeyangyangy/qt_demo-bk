@@ -1,6 +1,7 @@
 #ifndef WIDGET_H
 #define WIDGET_H
 
+#include <QApplication>
 #include <QCloseEvent>
 #include <QDateTime>
 #include <QDebug>
@@ -25,7 +26,6 @@
 #include <QTextEdit>
 #include <QThreadPool>
 #include <QVBoxLayout>
-#include <QApplication>
 
 #include "monitor/TriggerMonitor.h"
 #include "ui_Widget.h"
@@ -36,6 +36,11 @@ class Widget : public QMainWindow {
  public:
   explicit Widget(QWidget* parent = nullptr);
   ~Widget() override;
+  void updateProgressBar(int progress) const;  // 更新进度条
+
+ public slots:
+  void setSyncActionEnabled(
+      bool status) const;  // 允许外部调用以控制 syncAction 启用
 
  protected:
   void closeEvent(QCloseEvent* event) override;
@@ -62,21 +67,25 @@ class Widget : public QMainWindow {
                                 const QString& msg);
 
   // 初始化函数
-  void setupMenuBar();                           // 设置菜单栏
-  void setupWorkspace(QVBoxLayout* mainLayout);  // 设置工作空间
-  void setupLogArea(QVBoxLayout* mainLayout);    // 设置日志区域
+  void setupMenuBar();                              // 设置菜单栏
+  void setupWorkspace(QVBoxLayout* mainLayout);     // 设置工作空间
+  void setupLogArea(QVBoxLayout* mainLayout);       // 设置日志区域
+  void setupProgressArea(QVBoxLayout* mainLayout);  // 设置进度条区域
+  // int totalTasks = 0;                               // 总任务数
+  // int completedTasks = 0;                           // 已完成任务数
 
   // 文件操作
   void addFileRow();  // 添加文件行
-  bool checkDocCompare(const QString& src,
-                       const QString& dest);  // 检查路径是否相同
+  // bool checkDocCompare(const QString& src,
+  //                      const QString& dest);  // 检查路径是否相同
   void checkFileVersion(const QString& src,
                         const QString& dest);  // 检查文件版本
   void writeErrLog(const QString& msg);        // 写入错误日志
-  static bool checkFileIsDir(QString const& file1,
-                             QString const& file2);  // 检查文件是否是目录
+  // static bool checkFileIsDir(QString const& file1,
+  //                            QString const& file2);  // 检查文件是否是目录
 
-  QAction* syncAction;  // 同步动作
+  QAction* syncAction;         // 同步动作
+  QAction* triggerTimeAction;  // 触发时间动作
   // 初始化监控器
   TriggerMonitor* monitor;
 
@@ -87,6 +96,8 @@ class Widget : public QMainWindow {
 
   // 系统状态
   void isTaskRunning();
+
+  std::atomic<int> completedTasks{0};  // 原子计数器，用于记录完成的任务数量
 
  private slots:
   // 槽函数

@@ -4,6 +4,7 @@
 
 #include "task/FileMonitor.h"
 #include "task/SyncTask.h"
+#include "utils/SyncUtils.h"
 
 // 定义静态成员变量
 QTextEdit* Widget::globalLogArea = nullptr;
@@ -20,7 +21,7 @@ Widget::Widget(QWidget* parent)
   setWindowIcon(QIcon(":/svg/files.png"));
 
   // 在获取布局时候初始化监控进程
-  monitor = new TriggerMonitor(this);
+  monitor = new TriggerMonitor(this,this);
   monitor->startMonitoring();
 
   // 创建系统托盘图标
@@ -38,7 +39,7 @@ Widget::Widget(QWidget* parent)
       QIcon(":/svg/files.svg"), "显示主窗口", this, &Widget::showNormal);
 
   QAction* exitAction = trayMenu->addAction(QIcon(":/svg/exit.svg"), "退出",
-                                              this, &Widget::onExit);
+                                            this, &Widget::onExit);
 
   trayIcon->setContextMenu(trayMenu);
   trayIcon->setVisible(true);
@@ -74,6 +75,7 @@ Widget::Widget(QWidget* parent)
   setupMenuBar();
   setupWorkspace(mainLayout);
   setupLogArea(mainLayout);
+  setupProgressArea(mainLayout);
 
   setCentralWidget(centralWidget);
 
@@ -149,14 +151,14 @@ void Widget::setupMenuBar() {
   // connect(monitor, &TriggerMonitor::syncTriggered, this,
   // &Widget::onSyncTriggered);
   connect(monitor, &TriggerMonitor::syncTriggered, this,
-                         &Widget::onSyncTriggered);
+          &Widget::onSyncTriggered);
   // qDebug() << "connect result: " << success;
 
   // 同步任务完成时恢复按钮状态
   connect(monitor, &TriggerMonitor::syncTriggered, this,
           &Widget::onTaskCompleted);
 
-  QAction* triggerTimeAction = syncMenu->addAction(
+  triggerTimeAction = syncMenu->addAction(
       QIcon(":/svg/hourglass.svg"), "触发时间", this, &Widget::onSystemInfo);
   triggerTimeAction->setShortcut(QKeySequence("Ctrl+Shift+T"));
 
@@ -230,14 +232,45 @@ void Widget::setupLogArea(QVBoxLayout* mainLayout) {
   mainLayout->addWidget(logArea);
 }
 
-bool Widget::checkDocCompare(const QString& src, const QString& dest) {
-  if (!src.compare(dest, Qt::CaseInsensitive)) {
-    qInfo("bool Widget::checkDocCompare 选择失败，路径相同");
-    return true;
-  } else {
-    return false;
+/**
+ * @brief 进度条显示区域设置
+ *
+ * @param mainLayout 布局容器
+ * @return void
+ * @note
+ */
+void Widget::setupProgressArea(QVBoxLayout* mainLayout) {
+  QLabel* progLabel = new QLabel("任务进度", this);
+  progressBar.reset(new QProgressBar());  // 重新初始化
+  progressBar->setRange(0, 100);          // 进度条范围 0-100
+  progressBar->setValue(0);               // 初始值为 0
+  mainLayout->addWidget(progLabel);
+  mainLayout->addWidget(progressBar.get());  // 添加到布局
+
+  // 存储进度条指针，方便后续更新
+  // this->progressBar = progressBar;
+}
+
+/**
+ * @brief 更新进度条
+ *
+ * @param value 进度条值
+ * @return void
+ */
+void Widget::updateProgressBar(int progress) const {
+  if (progressBar) {
+    progressBar->setValue(progress);  // 更新进度条的值
   }
 }
+
+// bool Widget::checkDocCompare(const QString& src, const QString& dest) {
+//   if (!src.compare(dest, Qt::CaseInsensitive)) {
+//     qInfo("bool Widget::checkDocCompare 选择失败，路径相同");
+//     return true;
+//   } else {
+//     return false;
+//   }
+// }
 
 void Widget::addFileRow() {
   QHBoxLayout* rowLayout = new QHBoxLayout();
@@ -261,7 +294,7 @@ void Widget::addFileRow() {
             QString filePath = QFileDialog::getExistingDirectory(
                 nullptr, "选择监听原始文件夹");
             if (!filePath.isEmpty()) {
-              if (checkDocCompare(fileInfo2->text(), filePath)) {
+              if (SyncUtils::checkDocCompare(fileInfo2->text(), filePath)) {
                 QMessageBox::warning(this, "警告",
                                      "选择的监听文件夹不能与目标文件夹相同");
                 fileInfo1->setText("");
@@ -276,7 +309,7 @@ void Widget::addFileRow() {
             QString filePath = QFileDialog::getExistingDirectory(
                 nullptr, "选择目标路径文件夹");
             if (!filePath.isEmpty()) {
-              if (checkDocCompare(fileInfo1->text(), filePath)) {
+              if (SyncUtils::checkDocCompare(fileInfo1->text(), filePath)) {
                 QMessageBox::warning(this, "警告",
                                      "选择的目标文件夹不能与监听文件夹相同");
                 fileInfo2->setText("");
@@ -463,72 +496,113 @@ void Widget::onOpenConfiguration() {
 void Widget::onExit() { QApplication::quit(); }
 
 void Widget::onAbout() {
-  QMessageBox::about(this, "关于文件同步管理器",
-                     "基于Qt开发的文件同步管理器。\n作者：LEEYANGY");
+  QDialog dialog(this);
+  dialog.setWindowTitle("关于文件同步管理器");
+  dialog.setFixedSize(800, 480);
+
+  QVBoxLayout* layout = new QVBoxLayout(&dialog);
+
+  auto* lintr =
+      new QLabel("软件简介：基于C++&Qt开发的文件同步管理器。", &dialog);
+  auto* lauthor = new QLabel("作者：LEEYANGY", &dialog);
+  auto* laddr = new QLabel("开源地址：", &dialog);
+
+  QLabel* linkLabel = new QLabel(
+      "<a "
+      "href=\"https://github.com/leeyangyangy/qt_demo-bk/tree/"
+      "filesync-cmake-clion\">"
+      "https://github.com/leeyangyangy/qt_demo-bk/tree/filesync-cmake-clion</"
+      "a>",
+      &dialog);
+  linkLabel->setTextInteractionFlags(Qt::TextSelectableByMouse |
+                                     Qt::LinksAccessibleByMouse);
+  linkLabel->setOpenExternalLinks(true);  // 允许点击打开链接
+
+  layout->addWidget(lintr);
+  layout->addWidget(lauthor);
+  layout->addWidget(laddr);
+  layout->addWidget(linkLabel);
+
+  QPushButton* okButton = new QPushButton("确定", &dialog);
+  layout->addWidget(okButton);
+  connect(okButton, &QPushButton::clicked, &dialog, &QDialog::accept);
+
+  dialog.setLayout(layout);
+  dialog.exec();
 }
 
 void Widget::onSync() {
-  QFile configFile(configFilePath);
-  if (!configFile.open(QIODevice::ReadOnly)) {
-    qWarning() << "无法打开配置文件，创建默认配置";
-    return;
-  }
-
-  QByteArray data = configFile.readAll();
-  configFile.close();
-
-  QJsonDocument doc = QJsonDocument::fromJson(data);
-  if (!doc.isObject()) {
-    qWarning() << "配置文件格式错误，创建默认配置";
-    return;
-  }
-  int taskCount = 0;
-  int completedTasks = 0;
-
-  QJsonArray rows = doc.object().value("workspace").toArray();
-  for (const QJsonValue& value : rows) {
-    QJsonObject row = value.toObject();
-
-    QString file1 = row.value("file1").toString();
-    QString file2 = row.value("file2").toString();
-
-    if (checkDocCompare(file1, file2)) {
-      QMessageBox::about(this, "提示", "文件夹路径相同，请检查并修改");
-      return;
-    }
-
-    if (!checkFileIsDir(file1, file2)) {
-      QMessageBox::warning(this, "提示",
-                           QString("监听路径\n%1\n"
-                                   "或\n"
-                                   "目标路径\n%2\n不是文件夹，请检查并修改")
-                               .arg(file1)
-                               .arg(file2));
-      return;
-    }
-
-    if (file1.isEmpty() || file2.isEmpty()) {
-      QMessageBox::about(this, "提示", "文件夹选择有误，请检查并修改");
-    } else {
-      ++taskCount;
-      SyncTask* task = new SyncTask(file1, file2);
-
-      connect(task, &SyncTask::taskCompleted, this,
-              [this, &completedTasks, taskCount](const QString& source,
-                                                 const QString& target) {
-                completedTasks++;
-                qInfo() << "同步完成:" << source << " -> " << target;
-                qInfo() << "taskCount:" << taskCount
-                        << "completedTasks:" << completedTasks;
-
-                if (completedTasks == taskCount) {
-                  QMessageBox::about(this, "任务完成", "所有同步任务已完成！");
-                }
-              });
-
-      QThreadPool::globalInstance()->start(task);
-    }
-  }
+  // QFile configFile(configFilePath);
+  // if (!configFile.open(QIODevice::ReadOnly)) {
+  //   qWarning() << "无法打开配置文件，创建默认配置";
+  //   return;
+  // }
+  //
+  // QByteArray data = configFile.readAll();
+  // configFile.close();
+  //
+  // QJsonDocument doc = QJsonDocument::fromJson(data);
+  // if (!doc.isObject()) {
+  //   qWarning() << "配置文件格式错误，创建默认配置";
+  //   return;
+  // }
+  // int taskCount = 0;
+  // completedTasks.store(0);        // 任务开始前重置计数器
+  // updateProgressBar(taskCount);
+  // QJsonArray rows = doc.object().value("workspace").toArray();
+  // int totalTasks = rows.size();
+  // for (const QJsonValue& value : rows) {
+  //   QJsonObject row = value.toObject();
+  //
+  //   QString file1 = row.value("file1").toString();
+  //   QString file2 = row.value("file2").toString();
+  //
+  //   if (SyncUtils::checkDocCompare(file1, file2)) {
+  //     QMessageBox::about(this, "提示", "文件夹路径相同，请检查并修改");
+  //     return;
+  //   }
+  //
+  //   if (!SyncUtils::checkFileIsDir(file1, file2)) {
+  //     QMessageBox::warning(this, "提示",
+  //                          QString("监听路径\n%1\n"
+  //                                  "或\n"
+  //                                  "目标路径\n%2\n不是文件夹，请检查并修改")
+  //                              .arg(file1)
+  //                              .arg(file2));
+  //     return;
+  //   }
+  //
+  //   if (file1.isEmpty() || file2.isEmpty()) {
+  //     QMessageBox::about(this, "提示", "文件夹选择有误，请检查并修改");
+  //   } else {
+  //     ++taskCount;
+  //     this->syncAction->setEnabled(false);
+  //     const auto task = new SyncTask(file1, file2);
+  //     connect(task, &SyncTask::taskCompleted, this,
+  //             [this, taskCount, totalTasks](const QString& source,
+  //                                           const QString& target) {
+  //               this->completedTasks.fetch_add(
+  //                   1, std::memory_order_relaxed);  // **原子增加**
+  //               int progress =
+  //                   static_cast<double>(completedTasks) / totalTasks * 100;
+  //               qInfo() << "同步完成:" << source << " -> " << target
+  //                       << "taskCount:" << taskCount
+  //                       << "completedTasks:" << completedTasks
+  //                       << "totalTasks:" << totalTasks
+  //                       << "progress:" << progress;
+  //
+  //               updateProgressBar(progress);
+  //               if (completedTasks == taskCount) {
+  //                 // QMessageBox::about(this, "任务完成",
+  //                 // "所有同步任务已完成！");
+  //                 syncAction->setEnabled(true);
+  //               }
+  //             });
+  //
+  //     QThreadPool::globalInstance()->start(task);
+  //   }
+  // }
+  monitor->triggerSync();
 }
 
 // TODO
@@ -550,9 +624,7 @@ void Widget::onSaveConfiguration() {
 }
 
 // TODO
-void Widget::onSystemInfo() {
-  monitor->showSettingsDialog();
-}
+void Widget::onSystemInfo() { monitor->showSettingsDialog(); }
 
 // TODO
 void Widget::onRules() {
@@ -660,25 +732,16 @@ void Widget::logMessageHandler(QtMsgType type,
 //  // 获取当前路径，保存日志到 err/task.log
 // }
 
-bool Widget::checkFileIsDir(QString const& file1, QString const& file2) {
-  QFileInfo file1_(file1);
-  QFileInfo file2_(file2);
-  if (file1_.isDir() && file2_.isDir())
-    return true;
-  else
-    return false;
-}
-
 void Widget::onSyncActionClicked() const {
   // 若已有任务在运行，则不允许重复点击
-  if (!syncAction->isEnabled()) return;
+  if (syncAction->isEnabled()) return;
 
   // 禁用按钮，防止重复点击
   syncAction->setEnabled(false);
   // logWidget->appendPlainText("开始同步任务...");
-  qDebug() << "开始同步任务...";
+  qDebug() << "开始同步任务...onSyncActionClicked";
   // 立即触发同步任务（通过 TriggerMonitor 接口）
-  monitor->triggerSync();
+  // monitor->triggerSync();
 }
 
 void Widget::onTaskCompleted(const QString& source,
@@ -694,4 +757,10 @@ void Widget::onSyncTriggered(const QString& source, const QString& target) {
   // logWidget->appendPlainText(QString("已触发同步任务：%1 -> %2").arg(source,
   // target));
   qDebug() << QString("已触发同步任务：%1 -> %2").arg(source, target);
+}
+
+// 所有按键禁用？
+void Widget::setSyncActionEnabled(bool status) const {
+  syncAction->setEnabled(status);
+  triggerTimeAction->setEnabled(status);
 }

@@ -18,6 +18,7 @@ add_executable(${PROJECT_NAME}
         task/FileProcessTask.cpp
         task/SyncTask.cpp
         init/Env.cpp
+        utils/SyncUtils.cpp
 )
 
 # add QXlsx libs
