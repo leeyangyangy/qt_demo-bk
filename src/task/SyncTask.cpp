@@ -15,6 +15,7 @@
 #include <QTextStream>
 
 // 包含 QXlsx 相关头文件（确保 CMake 配置正确）
+#include "../utils/SyncUtils.h"
 #include "xlsxdocument.h"
 
 // 定义常量（可根据需要修改）
@@ -31,9 +32,15 @@ SyncTask::SyncTask(const QString &source, const QString &target,
 
 void SyncTask::run() {
   qDebug() << "🚀 Starting synchronization task...";
-
-  // 创建目标目录、冲突目录、日志目录（如果不存在）
+  if (SyncUtils::testFilePathWritablePermissions(targetPath) == false) {
+    qDebug() << "🚫 Target {" << targetPath
+             << "} is not writable! synchronization task aborted.";
+    emit taskCompleted(sourcePath, targetPath);
+    return;
+  }
+  // 确保目标目录存在（版本记录文件也存储在目标目录下）
   ensureDirectoryExists(targetPath);
+  // 备份目录和日志目录均采用程序运行目录（不依赖于目标目录）
   ensureDirectoryExists(getConflictDirPath());
   ensureDirectoryExists(getLogDirPath());
 
@@ -49,12 +56,13 @@ void SyncTask::run() {
 }
 
 void SyncTask::syncDirectory(const QString &source, const QString &target) {
-  // 版本记录文件位于目标目录下
+  // 版本记录文件位于目标目录中
   const QString recordPath = QDir(target).filePath(VERSION_FILE);
   QMap<QString, QString> oldRecords = readVersionRecords(recordPath);
   QMap<QString, QString> newRecords;
 
   processDirectory(source, "", source, target, oldRecords, newRecords);
+
   writeVersionRecords(recordPath, newRecords);
 }
 
@@ -63,13 +71,27 @@ void SyncTask::processDirectory(const QString &basePath,
                                 const QString &source, const QString &target,
                                 QMap<QString, QString> &oldRecords,
                                 QMap<QString, QString> &newRecords) {
+  // 如果正在处理的目录正好为程序运行目录，则不进行同步
+  if (QDir(basePath).absolutePath() == QDir::current().absolutePath()) {
+    qDebug() << "Skipping program directory:" << basePath;
+    return;
+  }
+
   QDir currentDir(QDir(basePath).filePath(relativePath));
-  foreach (const QFileInfo &fileInfo,
-           currentDir.entryInfoList(QDir::Files | QDir::Dirs |
-                                    QDir::NoDotAndDotDot)) {
+  QFileInfoList entries =
+      currentDir.entryInfoList(QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot);
+  foreach (const QFileInfo &fileInfo, entries) {
     QString newRelativePath = relativePath.isEmpty()
                                   ? fileInfo.fileName()
                                   : relativePath + "/" + fileInfo.fileName();
+
+    // 如果目标版本记录、日志或冲突目录属于同步内容，则跳过
+    if (newRelativePath == VERSION_FILE ||
+        newRelativePath.startsWith(LOG_DIR) ||
+        newRelativePath.startsWith(CONFLICT_DIR)) {
+      qDebug() << "Skipping reserved path:" << newRelativePath;
+      continue;
+    }
 
     if (fileInfo.isDir()) {
       processDirectory(basePath, newRelativePath, source, target, oldRecords,
@@ -77,17 +99,19 @@ void SyncTask::processDirectory(const QString &basePath,
       continue;
     }
 
-    // 计算文件 MD5
+    // 计算源文件 MD5 值
     QString sourceFile = QDir(source).filePath(newRelativePath);
     QString md5 = calculateFileHash(sourceFile);
     newRecords[newRelativePath] = md5;
 
     QString targetFile = QDir(target).filePath(newRelativePath);
+    // 若目标中不存在此文件，则直接拷贝
     if (!oldRecords.contains(newRelativePath) || !QFile::exists(targetFile)) {
       ensureDirectoryExists(QFileInfo(targetFile).path());
       copyFileWithLog(sourceFile, targetFile);
       continue;
     }
+    // 若 MD5 不同，则先备份目标文件，再覆盖
     if (md5 != oldRecords[newRelativePath]) {
       handleConflict(targetFile, newRelativePath);
       if (removeFileWithLog(targetFile)) {
@@ -97,10 +121,9 @@ void SyncTask::processDirectory(const QString &basePath,
   }
 }
 
-QString SyncTask::calculateFileHash(const QString &filePath) const {
+QString SyncTask::calculateFileHash(const QString &filePath) {
   QFile file(filePath);
   if (!file.open(QIODevice::ReadOnly)) {
-    // logOperation("HASH", filePath, "", false, file.errorString());
     qDebug() << "Failed to open file for hashing:" << filePath
              << file.errorString();
     return "";
@@ -133,36 +156,40 @@ bool SyncTask::removeFileWithLog(const QString &path) {
 
 void SyncTask::handleConflict(const QString &targetFile,
                               const QString &relativePath) {
-  // 在冲突目录下以文件名创建子目录
-  QString conflictDir =
-      QDir(getConflictDirPath()).filePath(QFileInfo(relativePath).fileName());
+  // 备份目标文件的目录固定为：程序运行目录/conflicts/<任务时间戳>/<文件名>/
+  QString fileName = QFileInfo(targetFile).fileName();
+  QString conflictDir = QDir::current().filePath(
+      QString("%1/%2/%3").arg(CONFLICT_DIR).arg(taskTimestamp).arg(fileName));
   ensureDirectoryExists(conflictDir);
 
-  // 备份目标文件到冲突目录
-  QString backupFile =
-      QDir(conflictDir).filePath(QFileInfo(targetFile).fileName());
+  // 备份文件路径：冲突目录下原文件名
+  QString backupFile = QDir(conflictDir).filePath(fileName);
   bool backupSuccess = QFile::copy(targetFile, backupFile);
-  logOperation(
-      "BACKUP", targetFile, backupFile, backupSuccess,
-      backupSuccess ? "" : QString("Backup failed: %1").arg(targetFile));
+  logOperation("BACKUP", targetFile, backupFile, backupSuccess,
+               backupSuccess ? "" : "Backup failed");
 
-  // 创建 MD5 标记文件
   if (backupSuccess) {
-    QString oldHash = calculateFileHash(targetFile);
-    QFile md5File(QDir(conflictDir).filePath(oldHash + ".md5flag"));
+    // 创建 MD5 标记文件：文件名.md5
+    QString md5FilePath = QDir(conflictDir).filePath(fileName + ".md5");
+    QString hashValue = calculateFileHash(targetFile);
+    QFile md5File(md5FilePath);
     bool md5Success = md5File.open(QIODevice::WriteOnly);
-    if (md5Success) md5File.close();
-    logOperation("MD5_FLAG", "", md5File.fileName(), md5Success,
-                 md5Success ? "" : md5File.errorString());
+    if (md5Success) {
+      QTextStream out(&md5File);
+      out << hashValue;
+      md5File.close();
+    }
+    logOperation("MD5_FLAG", "", md5FilePath, md5Success,
+                 md5Success ? "" : "Failed to create MD5 file");
   }
 
   // 记录冲突信息
   ConflictEntry entry;
-  entry.filename = QFileInfo(targetFile).fileName();
+  entry.filename = fileName;
   entry.sourcePath = QDir(sourcePath).filePath(relativePath);
   entry.targetPath = targetFile;
-  entry.oldHash = calculateFileHash(targetFile);
-  entry.newHash = calculateFileHash(entry.sourcePath);
+  entry.oldHash = calculateFileHash(targetFile);        // 旧版本 hash
+  entry.newHash = calculateFileHash(entry.sourcePath);  // 新源文件 hash
   entry.conflictTime = QDateTime::currentDateTime();
   conflictEntries.append(entry);
 }
@@ -191,7 +218,9 @@ void SyncTask::writeVersionRecords(const QString &recordPath,
   QFile file(recordPath);
   if (file.open(QIODevice::WriteOnly)) {
     QTextStream out(&file);
-    for (auto it = records.begin(); it != records.end(); ++it) {
+    QMapIterator<QString, QString> it(records);
+    while (it.hasNext()) {
+      it.next();
       out << it.key() << "|" << it.value() << "\n";
     }
     file.close();
@@ -209,12 +238,8 @@ void SyncTask::saveTaskLog() {
         QXlsx::Document xlsx;
         QXlsx::Format headerFormat;
         headerFormat.setFontBold(true);
-        // 设置字体颜色为红色
         headerFormat.setFontColor(QColor(Qt::red));
-
-        // 设置单元格背景颜色为淡绿色
-        headerFormat.setPatternBackgroundColor(
-            QColor(152, 251, 152));  // 浅绿色
+        headerFormat.setPatternBackgroundColor(QColor(152, 251, 152));
 
         QStringList headers = {"Timestamp",   "Operation", "Source Path",
                                "Target Path", "Status",    "Error Message"};
@@ -252,13 +277,9 @@ void SyncTask::generateConflictReport() {
         QXlsx::Document xlsx;
         QXlsx::Format headerFormat;
         headerFormat.setFontBold(true);
-
-        // 设置字体颜色为红色
         headerFormat.setFontColor(QColor(Qt::red));
+        headerFormat.setPatternBackgroundColor(QColor(152, 251, 152));
 
-        // 设置单元格背景颜色为淡绿色
-        headerFormat.setPatternBackgroundColor(
-            QColor(152, 251, 152));  // 浅绿色
         QStringList headers = {"Filename", "Source Path", "Target Path",
                                "Old Hash", "New Hash",    "Conflict Time"};
         for (int col = 0; col < headers.size(); ++col) {
@@ -295,12 +316,15 @@ void SyncTask::ensureDirectoryExists(const QString &path) {
 }
 
 QString SyncTask::getLogDirPath() const {
-  return QDir::current().filePath(QString("%1/%2").arg(LOG_DIR, taskTimestamp));
+  // 日志目录放在程序运行目录下
+  return QDir::current().filePath(
+      QString("%1/%2").arg(LOG_DIR).arg(taskTimestamp));
 }
 
 QString SyncTask::getConflictDirPath() const {
+  // 冲突目录放在程序运行目录下
   return QDir::current().filePath(
-      QString("%1/%2").arg(CONFLICT_DIR, taskTimestamp));
+      QString("%1/%2").arg(CONFLICT_DIR).arg(taskTimestamp));
 }
 
 void SyncTask::logOperation(const QString &type, const QString &source,

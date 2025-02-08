@@ -2,7 +2,7 @@
 
 #include <qpointer.h>
 
-#include "task/FileMonitor.h"
+// #include "task/FileMonitor.h"
 #include "task/SyncTask.h"
 #include "utils/SyncUtils.h"
 
@@ -22,7 +22,7 @@ Widget::Widget(QWidget* parent)
 
   // 在获取布局时候初始化监控进程
   monitor = new TriggerMonitor(this,this);
-  monitor->startMonitoring();
+  monitor->startMonitoring(configFilePath);
 
   // 创建系统托盘图标
   // trayIcon = new QSystemTrayIcon(this);
@@ -124,7 +124,7 @@ void Widget::setupMenuBar() {
 
   QAction* ruleAction = confMenu->addAction(QIcon(":/svg/rules.svg"),
                                             "规则引擎", this, &Widget::onRules);
-  ruleAction->setShortcut(QKeySequence("Ctrl+Shift+R"));
+  ruleAction->setShortcut(QKeySequence("Ctrl+R"));
 
   QAction* exitAction = confMenu->addAction(QIcon(":/svg/exit.svg"), "退出",
                                             this, &Widget::onExit);
@@ -161,6 +161,13 @@ void Widget::setupMenuBar() {
   triggerTimeAction = syncMenu->addAction(
       QIcon(":/svg/hourglass.svg"), "触发时间", this, &Widget::onSystemInfo);
   triggerTimeAction->setShortcut(QKeySequence("Ctrl+Shift+T"));
+
+  stopTriggerTimeAction = syncMenu->addAction(
+      QIcon(":/svg/pause.svg"), "停止监控", this, &Widget::onStopTriggerTimeActionClicked);
+  stopTriggerTimeAction->setShortcut(QKeySequence("Ctrl+Shift+P"));
+  startTriggerTimeAction = syncMenu->addAction(
+      QIcon(":/svg/start.svg"), "开始监控", this, &Widget::onStartTriggerTimeActionClicked);
+  startTriggerTimeAction->setShortcut(QKeySequence("Ctrl+Shift+R"));
 
   menuBar->addMenu(syncMenu);
 
@@ -277,7 +284,7 @@ void Widget::addFileRow() {
 
   // 使用 QPointer 管理控件指针
   QPointer<QPushButton> fileDialogButton1 =
-      new QPushButton("选择监听文件", this);
+      new QPushButton("选择监听文件夹", this);
   QPointer<QLineEdit> fileInfo1 = new QLineEdit(this);
   fileInfo1->setReadOnly(true);
 
@@ -602,7 +609,7 @@ void Widget::onSync() {
   //     QThreadPool::globalInstance()->start(task);
   //   }
   // }
-  monitor->triggerSync();
+  monitor->triggerSync(configFilePath);
 }
 
 // TODO
@@ -739,7 +746,7 @@ void Widget::onSyncActionClicked() const {
   // 禁用按钮，防止重复点击
   syncAction->setEnabled(false);
   // logWidget->appendPlainText("开始同步任务...");
-  qDebug() << "开始同步任务...onSyncActionClicked";
+  // qDebug() << "开始同步任务...onSyncActionClicked";
   // 立即触发同步任务（通过 TriggerMonitor 接口）
   // monitor->triggerSync();
 }
@@ -763,4 +770,12 @@ void Widget::onSyncTriggered(const QString& source, const QString& target) {
 void Widget::setSyncActionEnabled(bool status) const {
   syncAction->setEnabled(status);
   triggerTimeAction->setEnabled(status);
+}
+
+void Widget::onStopTriggerTimeActionClicked() const {
+  monitor->stopMonitoring();
+}
+
+void Widget::onStartTriggerTimeActionClicked() const {
+  monitor->startMonitoring(configFilePath);
 }

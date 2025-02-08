@@ -67,7 +67,7 @@ private:
                           QMap<QString, QString> &newRecords);
 
     // 文件操作函数
-    QString calculateFileHash(const QString &filePath) const;
+    static QString calculateFileHash(const QString &filePath) ;
     bool copyFileWithLog(const QString &source, const QString &target);
     bool removeFileWithLog(const QString &path);
     void handleConflict(const QString &targetFile, const QString &relativePath);

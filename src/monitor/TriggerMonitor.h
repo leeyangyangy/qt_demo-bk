@@ -1,126 +1,88 @@
-// #ifndef TRIGGERMONITOR_H
-// #define TRIGGERMONITOR_H
-//
-// #include <QDateTime>
-// #include <QObject>
-// #include <QTimer>
-//
-// // 前置声明：SyncTask 定义在 SyncTask.h 中
-// class SyncTask;
-//
-// class TriggerMonitor : public QObject {
-//   Q_OBJECT
-//  public:
-//   // 定义最小线程数和配置文件名
-//   static const int MIN_THREADS;
-//   static const QString CONFIG_FILE;  // 例如 "trigger_config.json"
-//
-//   explicit TriggerMonitor(QObject *parent = nullptr);
-//   ~TriggerMonitor() override;
-//
-//   // 开始或停止监控同步任务
-//   void startMonitoring();
-//   void stopMonitoring();
-//
-//   // 立即触发同步（例如由按钮点击触发）
-//   void triggerSync();
-//
-//  signals:
-//   // 当配置更新后发出信号
-//   void configChanged();
-//   // 同步任务启动时发出信号（传递源、目标路径）
-//   void syncTriggered(const QString &sourcePath, const QString &targetPath);
-//
-//  public slots:
-//   // 显示设置对话框（可修改触发间隔、最大线程数、同步路径）
-//   void showSettingsDialog();
-//   // 定时器超时回调，启动同步任务
-//   void onSyncTimeout();
-//   // 同步任务完成回调
-//   void onTaskCompleted(const QString &source, const QString &target);
-//
-//  private:
-//   // 内部设置对话框（嵌套类）
-//   class SettingsDialog;
-//
-//   // 配置加载和保存
-//   void loadConfig();
-//   void saveConfig();
-//
-//   // 重启定时器
-//   void restartTimer();
-//   // 清理当前任务
-//   void cleanupTask();
-//
-//   QTimer m_syncTimer;        // 定时器
-//   int m_triggerMinutes;      // 触发间隔（分钟）
-//   int m_maxThreads;          // 最大线程数
-//   QString m_sourcePath;      // 同步源目录
-//   QString m_targetPath;      // 同步目标目录
-//   bool m_isTaskRunning;      // 标记任务是否正在运行
-//   QDateTime m_lastTaskTime;  // 上次任务启动时间
-//
-//   SyncTask *m_currentTask;  // 当前同步任务指针
-// };
-//
-// #endif  // TRIGGERMONITOR_H
-
 #ifndef TRIGGERMONITOR_H
 #define TRIGGERMONITOR_H
 
-#include <QObject>
-#include <QTimer>
+// #include <QDateTime>
+// #include <QObject>
+#include <QSet>
+#include <QString>
 #include <QTime>
-#include <QThreadPool>
-#include <QJsonObject>
-#include <QStandardPaths>
+#include <QTimer>
 
+// 前向声明同步任务类
 class SyncTask;
+class Widget;
 
-class TriggerMonitor : public QObject
-{
- Q_OBJECT
-public:
- explicit TriggerMonitor(QObject *parent = nullptr);
- ~TriggerMonitor() override;
+class TriggerMonitor : public QObject {
+  Q_OBJECT
+ public:
+  explicit TriggerMonitor(QObject *parent = nullptr, Widget *widget = nullptr);
+  ~TriggerMonitor() override;
 
- // 配置管理
- void loadConfig();
- void saveConfig() const;
- void showSettingsDialog();
+  void setWidget(Widget *widget);  // 传递 Widget 指针
 
- // 监控控制
- void startMonitoring();
- void stopMonitoring();
- void triggerSync(); // 外部调用接口：立即触发同步任务
+  // 开始/停止监控
+  void startMonitoring(const QString &configFilePath);
+  void stopMonitoring();
+
+  // 立即触发同步任务
+  void triggerSync(const QString &configFilePath);
+
+  // 显示设置对话框，允许用户修改触发间隔、最大线程数、同步时间、上次同步时间、触发频率以及每周允许触发的日子
+  void showSettingsDialog();
 
  signals:
-     void configChanged(); // 配置发生变化时触发
- void syncTriggered(const QString& source, const QString& target); // 同步任务开始时触发
- void taskCompleted(const QString& source, const QString& target); // 同步任务完成时触发
+  // 配置发生变化时发出信号
+  void configChanged();
+  // 每次触发同步时发出信号，参数为源路径和目标路径
+  void syncTriggered(const QString &sourcePath, const QString &targetPath);
+  // 同步任务完成时发出信号
+  void taskCompleted(const QString &source, const QString &target);
+  // 更新进度条
+  void progressUpdated(int progress);
 
- private slots:
-     void checkSyncTime(); // 每分钟检查一次是否到达同步时间
- void onTaskCompleted(const QString& source, const QString& target); // 任务完成槽函数
+ public slots:
+  // 定时器超时回调，检查是否满足触发同步的条件
+  void checkSyncTime();
+  // 同步任务完成的槽函数
+  void onTaskCompleted(const QString &source, const QString &target);
+  void allTasksCompleted() const;
 
-private:
- // 配置相关
- static const QString CONFIG_FILE;
- static const int MIN_THREADS;
+ private:
+  QString configFilePath;  // 同步文件路径
 
- int m_triggerMinutes; // 触发间隔（分钟）
- int m_maxThreads;     // 最大线程数
- QString m_sourcePath; // 源路径
- QString m_targetPath; // 目标路径
- QTime syncTime;       // 同步时间
+  // 配置文件读写
+  void loadConfig();
+  void saveConfig() const;
 
- // 任务状态
- QTimer pollingTimer;  // 轮询定时器
- bool m_isTaskRunning; // 任务是否正在运行
- SyncTask* m_currentTask; // 当前任务
+  // 重启定时器（例如在修改设置后）
+  void restartTimer();
 
- // 工具函数
- void cleanupTask(); // 清理任务资源
+  // 清理当前同步任务对象
+  void cleanupTask();
+
+  // 定时扫描使用的定时器
+  QTimer pollingTimer;
+
+  // 以下为配置参数
+  int m_triggerMinutes;  // UI上设置的基本触发间隔（分钟），例如用于调整设置对话框的显示值
+  int m_maxThreads;               // 最大线程数
+  QString m_sourcePath;           // 同步源路径
+  QString m_targetPath;           // 同步目标路径
+  QTime syncTime;                 // 同步时间（备用，如果需要每天固定时间触发）
+  QDateTime m_lastSyncTime;       // 上一次同步触发的时间
+  int m_triggerFrequencyMinutes;  // 实际定时触发同步的频率（单位：分钟）
+  QSet<Qt::DayOfWeek>
+      m_triggerWeekDays;  // 允许触发同步的星期（例如：只在工作日触发）
+
+  bool m_isTaskRunning;     // 当前是否有同步任务正在运行
+  SyncTask *m_currentTask;  // 当前正在运行的同步任务
+  // Widget *m_widget = nullptr;  // 只存储指针，不需要完整类定义
+  Widget *m_widget;  // 确保 Widget* 不是 nullptr
+
+  // 配置文件名称及最小线程数常量
+  static const QString CONFIG_FILE;
+  static const int MIN_THREADS;
+  std::atomic<int> completedTasks{0};  // 原子计数器，用于记录完成的任务数量
 };
 
-#endif // TRIGGERMONITOR_H
+#endif  // TRIGGERMONITOR_H

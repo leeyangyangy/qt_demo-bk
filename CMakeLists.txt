@@ -13,9 +13,26 @@ elseif (APPLE)
     message(STATUS "macOS platform detected, consider using macdeployqt for deployment.")
 endif ()
 
-# 自动查找 Qt 安装路径
+#set(CMAKE_INSTALL_PREFIX ${CMAKE_BINARY_DIR}/install/${TARGET_ARCH})
+# 自动检测 32 位或 64 位，设置对应的 Qt 安装路径 | CMAKE_SIZEOF_VOID_P：表示指针的大小，8 代表 64 位，4 代表 32 位
 if (NOT CMAKE_PREFIX_PATH)
-    set(CMAKE_PREFIX_PATH "D:/devtools/Qt/5.12.9/mingw73_64/lib/cmake")
+    if (CMAKE_SIZEOF_VOID_P EQUAL 8)
+        # 64 位编译
+        set(CMAKE_PREFIX_PATH "D:/devtools/Qt/5.12.9/mingw73_64/lib/cmake")
+        message(STATUS "Detected 64-bit build, using Qt 64-bit.")
+        set(MINGW_BIN_PATH "D:/devtools/Qt/5.12.9/mingw73_64/bin")
+        set(LIBGCC_DLL "libgcc_s_seh-1.dll")
+        message(STATUS "Using MinGW 64-bit DLLs.")
+    elseif (CMAKE_SIZEOF_VOID_P EQUAL 4)
+        # 32 位编译
+        set(CMAKE_PREFIX_PATH "D:/devtools/Qt/5.12.9/mingw73_32/lib/cmake")
+        message(STATUS "Detected 32-bit build, using Qt 32-bit.")
+        set(MINGW_BIN_PATH "D:/devtools/Qt/5.12.9/mingw73_32/bin")
+        set(LIBGCC_DLL "libgcc_s_dw2-1.dll")
+        message(STATUS "Using MinGW 32-bit DLLs.")
+    else ()
+        message(WARNING "Unknown architecture. Please check your toolchain settings.")
+    endif ()
 endif ()
 
 find_package(Qt5 COMPONENTS Core Gui Widgets Svg Network Test Concurrent REQUIRED)
@@ -31,6 +48,7 @@ add_subdirectory(src)
 
 # 调试信息输出
 message(STATUS "CMake Prefix Path: ${CMAKE_PREFIX_PATH}")
+message(STATUS "CMAKE_BUILD_TYPE: ${CMAKE_BUILD_TYPE}")
 
 # 添加测试支持
 enable_testing()

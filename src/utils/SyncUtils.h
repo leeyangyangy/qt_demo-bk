@@ -25,6 +25,25 @@ class SyncUtils {
    * @return void
    */
   static bool checkFileIsDir(QString const& src, QString const& dest);
+
+  /**
+   * @brief 检查路某一位置是否具有读写权限
+   *
+   * @param filePath 磁盘路径
+   * @return int 0 表示没有权限，1 表示有读权限，2 表示有写权限，3
+   * 表示有读写权限
+   */
+  static int checkFilePathPermissions(const QString& filePath);
+
+  /**
+   * @brief 检查路某一位置是否具有读写权限 2
+   *
+   * @param filePath 磁盘路径
+   * @return bool 0 表示没有权限，1 表示有读权限，2 表示有写权限，3
+   * 表示有读写权限
+   */
+  static bool testFilePathWritablePermissions(const QString& filePath);
+
 };
 
 #endif  // SYNCUTILS_H

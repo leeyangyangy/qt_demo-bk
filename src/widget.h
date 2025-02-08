@@ -41,6 +41,8 @@ class Widget : public QMainWindow {
  public slots:
   void setSyncActionEnabled(
       bool status) const;  // 允许外部调用以控制 syncAction 启用
+  void onStopTriggerTimeActionClicked() const;
+  void onStartTriggerTimeActionClicked() const;
 
  protected:
   void closeEvent(QCloseEvent* event) override;
@@ -86,6 +88,9 @@ class Widget : public QMainWindow {
 
   QAction* syncAction;         // 同步动作
   QAction* triggerTimeAction;  // 触发时间动作
+  QAction* stopTriggerTimeAction;  // 触发时间停止动作
+  QAction* startTriggerTimeAction;  // 触发时间开始动作
+
   // 初始化监控器
   TriggerMonitor* monitor;
 

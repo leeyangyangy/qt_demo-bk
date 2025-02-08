@@ -3,14 +3,25 @@ set(CMAKE_CXX_STANDARD 17)
 
 project(qtest)
 
+# 自动查找 Qt 安装路径
+if (NOT CMAKE_PREFIX_PATH)
+    set(CMAKE_PREFIX_PATH "D:/devtools/Qt/5.12.9/mingw73_64/lib/cmake")
+endif ()
+
 # 添加测试源文件
-set(TEST_SOURCES test_example.cpp FileMonitorTest.cpp)
+set(TEST_SOURCES test_example.cpp FileMonitorTest.cpp SyncTaskTest.cpp)
 
 # 创建测试可执行文件
 add_executable(${PROJECT_NAME} ${TEST_SOURCES})
 
+target_include_directories(${PROJECT_NAME}
+        PRIVATE
+        ${CMAKE_SOURCE_DIR}/include
+        ${CMAKE_SOURCE_DIR}/libs/QXlsx/QXlsx/header
+)
+
 # 链接Qt Test库
-target_link_libraries(${PROJECT_NAME} PRIVATE Qt5::Core Qt5::Gui Qt5::Widgets Qt5::Svg Qt5::Network Qt5::Test)
+target_link_libraries(${PROJECT_NAME} PRIVATE Qt5::Core Qt5::Gui Qt5::Widgets Qt5::Svg Qt5::Network Qt5::Test QXlsx)
 
 # Windows 特定设置
 if (WIN32 AND NOT DEFINED CMAKE_TOOLCHAIN_FILE)
