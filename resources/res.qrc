@@ -20,6 +20,8 @@
         <file>svg/author.svg</file>
         <file>svg/hourglass.svg</file>
         <file>svg/rules.svg</file>
+        <file>svg/pause.svg</file>
+        <file>svg/start.svg</file>
     </qresource>
 
     <!--png-->
