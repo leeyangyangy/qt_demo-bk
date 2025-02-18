@@ -1,11 +1,14 @@
 #ifndef TRIGGERMONITOR_H
 #define TRIGGERMONITOR_H
 
-// #include <QDateTime>
-// #include <QObject>
-#include <QSet>
+#include <QComboBox>
+#include <QDebug>
+#include <QFormLayout>
+#include <QGroupBox>
+#include <QSpinBox>
+#include <QStandardPaths>
 #include <QString>
-#include <QTime>
+#include <QTimeEdit>
 #include <QTimer>
 
 // 前向声明同步任务类
@@ -76,13 +79,21 @@ class TriggerMonitor : public QObject {
 
   bool m_isTaskRunning;     // 当前是否有同步任务正在运行
   SyncTask *m_currentTask;  // 当前正在运行的同步任务
-  // Widget *m_widget = nullptr;  // 只存储指针，不需要完整类定义
-  Widget *m_widget;  // 确保 Widget* 不是 nullptr
+  Widget *m_widget;         // 确保 Widget* 不是 nullptr
 
   // 配置文件名称及最小线程数常量
   static const QString CONFIG_FILE;
   static const int MIN_THREADS;
   std::atomic<int> completedTasks{0};  // 原子计数器，用于记录完成的任务数量
+
+  QGroupBox *weekDaysGroup;
+  QFormLayout *layout;
+  QComboBox *timeCombo;
+  QSpinBox *threadSpin;
+  QDateTimeEdit *lastSyncEdit;
+  QHBoxLayout *weekLayout;
+  QTimeEdit *timeEdit;
+  QSpinBox *frequencySpin;
 };
 
 #endif  // TRIGGERMONITOR_H

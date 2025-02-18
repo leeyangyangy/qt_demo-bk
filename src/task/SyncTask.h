@@ -34,7 +34,7 @@ public:
     explicit SyncTask(const QString &source, const QString &target, QObject *parent = nullptr);
 
     // 同步任务入口
-    void run();
+    void run() override;
 
 signals:
     // 同步任务完成后发出此信号

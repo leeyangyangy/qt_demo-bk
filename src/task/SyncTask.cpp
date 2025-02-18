@@ -7,10 +7,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
-#include <QFileInfoList>
-#include <QJsonDocument>
 #include <QJsonObject>
-#include <QMutex>
 #include <QMutexLocker>
 #include <QTextStream>
 
@@ -273,7 +270,7 @@ void SyncTask::generateConflictReport() {
   if (conflictEntries.isEmpty()) return;
   QMetaObject::invokeMethod(
       qApp,
-      [this]() {
+      [this] {
         QXlsx::Document xlsx;
         QXlsx::Format headerFormat;
         headerFormat.setFontBold(true);

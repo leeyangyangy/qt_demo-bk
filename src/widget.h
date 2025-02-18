@@ -50,11 +50,32 @@ class Widget : public QMainWindow {
  private:
   // UI 组件
   Ui::Widget* ui;
-  QTextEdit* logArea;                          // 日志显示区域
-  QVBoxLayout* workspaceLayout;                // 工作空间布局
+  QTextEdit* logArea;            // 日志显示区域
+  QVBoxLayout* workspaceLayout;  // 工作空间布局
+  QGroupBox* workspaceGroup;     // 工作空间组
+  QScrollArea* scrollArea;       // 工作空间组 -- 滚动区域
+  QWidget* scrollContent;        // 工作空间组 -- 滚动
+  // QPushButton* addRowsButton;                  // 工作空间组 -- 添加
+  QVBoxLayout* groupLayout;                    // 工作空间组 -- 添加
+  QHBoxLayout* logControlLayout;               // 日志区域 -- 布局
   QScopedPointer<QProgressBar> progressBar;    // 进度条
   QScopedPointer<QListWidget> taskListWidget;  // 任务列表
   QScopedPointer<QSystemTrayIcon> trayIcon;    // 系统托盘图标
+  TriggerMonitor* monitor;                     // 初始化监控器
+  QWidget* centralWidget;                      // 界面布局
+  QVBoxLayout* mainLayout;                     // 界面布局
+
+  /**
+   * 0. 日志
+   * 1. 进度
+   */
+  std::vector<std::unique_ptr<QLabel>> labels;
+
+  /**
+   * 0. 工作空间组件 -- 添加新行
+   * 1. 日志区域 -- 清空日志 clearLogButton
+   */
+  std::vector<std::unique_ptr<QPushButton>> buttons;
 
   // 配置文件路径
   // const QString configFilePath;    // 同步文件路径
@@ -81,41 +102,66 @@ class Widget : public QMainWindow {
   // bool checkDocCompare(const QString& src,
   //                      const QString& dest);  // 检查路径是否相同
   void checkFileVersion(const QString& src,
-                        const QString& dest);  // 检查文件版本
-  void writeErrLog(const QString& msg);        // 写入错误日志
+                        const QString& dest) const;  // 检查文件版本
   // static bool checkFileIsDir(QString const& file1,
   //                            QString const& file2);  // 检查文件是否是目录
 
-  QAction* syncAction;         // 同步动作
-  QAction* triggerTimeAction;  // 触发时间动作
-  QAction* stopTriggerTimeAction;  // 触发时间停止动作
-  QAction* startTriggerTimeAction;  // 触发时间开始动作
+  QMenuBar* menuBar;  // 菜单栏
 
-  // 初始化监控器
-  TriggerMonitor* monitor;
+  /**
+   * 0. 配置
+   * 1. 同步
+   * 2. 帮助
+   */
+  std::vector<std::unique_ptr<QMenu>> menus;
+  /**
+   * 0. 配置 快捷键 C
+   * 1. 同步 快捷键 S
+   * 2. 帮助 快捷键 H
+   */
+  std::vector<std::unique_ptr<QShortcut>> menuShortcuts;
+
+  /**
+   * 配置action
+   */
+  std::vector<std::unique_ptr<QAction>> confActions;
+
+  /**
+   * 同步action
+   * 0. 同步action
+   * 1. 触发时间action triggerTimeAction
+   * 2. 触发时间停止action stopTriggerTimeAction
+   * 3. 触发时间开始action startTriggerTimeAction
+   */
+  std::vector<std::unique_ptr<QAction>> syncActions;
+
+  /**
+   *
+   */
+  std::vector<std::unique_ptr<QAction>> helpActions;
 
   // 配置文件操作
-  void loadWorkspaceConfig();   // 加载工作空间配置
-  void saveWorkspaceConfig();   // 保存工作空间配置
-  void clearWorkspaceConfig();  // 清除工作空间配置
+  void loadWorkspaceConfig();         // 加载工作空间配置
+  void saveWorkspaceConfig() const;   // 保存工作空间配置
+  void clearWorkspaceConfig() const;  // 清除工作空间配置
 
   // 系统状态
-  void isTaskRunning();
+  bool isTaskRunning = false;
 
   std::atomic<int> completedTasks{0};  // 原子计数器，用于记录完成的任务数量
 
  private slots:
   // 槽函数
-  void onNewProject();         // 新建配置
-  void onOpenConfiguration();  // 打开配置文件
-  void onSaveConfiguration();  // 保存配置文件
-  void onExit();               // 退出程序
-  void onAbout();              // 关于信息
-  void onSync();               // 立即同步
-  void onSystemInfo();         // 系统信息
-  void onUpdateLog();          // 更新日志
-  void onGetLatestVersion();   // 获取最新版本
-  void onRules();              // 规则管理
+  void onNewProject() const;         // 新建配置
+  void onOpenConfiguration();        // 打开配置文件
+  void onSaveConfiguration() const;  // 保存配置文件
+  void onExit();                     // 退出程序
+  void onAbout();                    // 关于信息
+  void onSync() const;               // 立即同步
+  void onSystemInfo() const;         // 系统信息
+  void onUpdateLog();                // 更新日志
+  void onGetLatestVersion();         // 获取最新版本
+  void onRules() const;              // 规则管理
 
   // 点击同步按钮时触发
   void onSyncActionClicked() const;

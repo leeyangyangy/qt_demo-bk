@@ -12,16 +12,16 @@ QMutex Widget::logMutex;
 
 Widget::Widget(QWidget* parent)
     : QMainWindow(parent),
-      workspaceLayout(new QVBoxLayout()),
+      ui(new Ui::Widget),
       logArea(nullptr),
+      workspaceLayout(new QVBoxLayout()),
       configFilePath("files.json"),
-      configSystemPath("etc.json"),
-      ui(new Ui::Widget) {
+      configSystemPath("etc.json") {
   setWindowTitle("-- 文件同步管理器 -- 测试版 V1.0 24-1231 制作：LEEYANGY");
   setWindowIcon(QIcon(":/svg/files.png"));
 
   // 在获取布局时候初始化监控进程
-  monitor = new TriggerMonitor(this,this);
+  monitor = new TriggerMonitor(this, this);
   monitor->startMonitoring(configFilePath);
 
   // 创建系统托盘图标
@@ -33,13 +33,12 @@ Widget::Widget(QWidget* parent)
 
   trayIcon->setToolTip("FilesSync");
 
-  QMenu* trayMenu = new QMenu(this);
+  auto* trayMenu = new QMenu(this);
 
-  QAction* restoreAction = trayMenu->addAction(
-      QIcon(":/svg/files.svg"), "显示主窗口", this, &Widget::showNormal);
+  trayMenu->addAction(QIcon(":/svg/files.svg"), "显示主窗口", this,
+                      &Widget::showNormal);
 
-  QAction* exitAction = trayMenu->addAction(QIcon(":/svg/exit.svg"), "退出",
-                                            this, &Widget::onExit);
+  trayMenu->addAction(QIcon(":/svg/exit.svg"), "退出", this, &Widget::onExit);
 
   trayIcon->setContextMenu(trayMenu);
   trayIcon->setVisible(true);
@@ -47,30 +46,14 @@ Widget::Widget(QWidget* parent)
   // 设置托盘图标
   trayIcon->setIcon(QIcon(":/png/filesync.png"));
 
-  // // 处理托盘图标的点击事件
-  // QObject::connect(trayIcon, &QSystemTrayIcon::activated,
-  // [&](QSystemTrayIcon::ActivationReason reason) {
-  //     if (reason == QSystemTrayIcon::Trigger) {
-  //         QMetaObject::invokeMethod(this, [this]() {
-  //             QMessageBox::information(nullptr, "Tray Icon Clicked", "You
-  //             clicked the tray icon.");
-  //         });
-  //     }
-  // });
-
-  // 处理托盘图标的点击事件
+  // 处理托盘图标的点击事件，恢复窗口
   connect(trayIcon.data(), &QSystemTrayIcon::activated,
-          [&](QSystemTrayIcon::ActivationReason reason) {
-            if (reason == QSystemTrayIcon::Trigger) {
-              QMetaObject::invokeMethod(this, [this]() {
-                QMessageBox::information(nullptr, "Tray Icon Clicked",
-                                         "You clicked the tray icon.");
-              });
-            }
+          [&](const QSystemTrayIcon::ActivationReason reason) {
+            this->showNormal();
           });
 
-  QWidget* centralWidget = new QWidget(this);
-  QVBoxLayout* mainLayout = new QVBoxLayout(centralWidget);
+  centralWidget = new QWidget(this);
+  mainLayout = new QVBoxLayout(centralWidget);
 
   setupMenuBar();
   setupWorkspace(mainLayout);
@@ -88,6 +71,7 @@ Widget::Widget(QWidget* parent)
 Widget::~Widget() {
   saveWorkspaceConfig();
   monitor->stopMonitoring();
+  delete monitor;
   // 释放内存？
   delete ui;
   // delete trayIcon;
@@ -98,142 +82,164 @@ Widget::~Widget() {
 void Widget::closeEvent(QCloseEvent* event) {
   saveWorkspaceConfig();
   // QMainWindow::closeEvent(event); // 关闭
-  this->showMinimized();  // 仅最小化
-  event->ignore();        // 阻止关闭
+  this->hide();     // 仅最小化
+  event->ignore();  // 阻止关闭
 }
 
 void Widget::setupMenuBar() {
-  const auto menuBar = new QMenuBar(this);
+  menuBar = new QMenuBar(this);
+  // -------  配置 -------
+  menus.push_back(std::move(std::make_unique<QMenu>("配置(C)", this)));
+  menuShortcuts.push_back(std::make_unique<QShortcut>(QKeySequence("C"), this));
+  // TODO 应该是显示对应菜单下的按钮
+  connect(menuShortcuts[0].get(), &QShortcut::activated, this,
+          &Widget::onNewProject);
+  // QIcon(":/svg/new_conf.svg")
+  confActions.push_back(
+      std::make_unique<QAction>(QIcon(":/svg/new_conf.svg"), "新建配置", this));
+  confActions[0]->setShortcut(QKeySequence("Ctrl+N"));
+  connect(confActions[0].get(), &QAction::triggered, this,
+          &Widget::onNewProject);
 
-  QMenu* confMenu = new QMenu("配置(C)", this);
-  QShortcut* confShortcut = new QShortcut(QKeySequence("C"), this);
-  connect(confShortcut, &QShortcut::activated, this, &Widget::onNewProject);
+  confActions.push_back(std::make_unique<QAction>(QIcon(":/svg/open_conf.svg"),
+                                                  "打开配置", this));
+  confActions[1]->setShortcut(QKeySequence("Ctrl+O"));
+  connect(confActions[1].get(), &QAction::triggered, this,
+          &Widget::onOpenConfiguration);
 
-  QAction* newAction = confMenu->addAction(
-      QIcon(":/svg/new_conf.svg"), "新建配置", this, &Widget::onNewProject);
-  newAction->setShortcut(QKeySequence("Ctrl+N"));
+  confActions.push_back(
+      std::make_unique<QAction>(QIcon(":/svg/save.svg"), "保存配置", this));
+  confActions[2]->setShortcut(QKeySequence("Ctrl+S"));
+  connect(confActions[2].get(), &QAction::triggered, this,
+          &Widget::onSaveConfiguration);
 
-  QAction* openAction =
-      confMenu->addAction(QIcon(":/svg/open_conf.svg"), "打开配置", this,
-                          &Widget::onOpenConfiguration);
-  openAction->setShortcut(QKeySequence("Ctrl+O"));
+  confActions.push_back(
+      std::make_unique<QAction>(QIcon(":/svg/rules.svg"), "规则引擎", this));
+  confActions[3]->setShortcut(QKeySequence("Ctrl+R"));
+  connect(confActions[3].get(), &QAction::triggered, this, &Widget::onRules);
 
-  QAction* saveAction = confMenu->addAction(QIcon(":/svg/save.svg"), "保存配置",
-                                            this, &Widget::onSaveConfiguration);
-  saveAction->setShortcut(QKeySequence("Ctrl+S"));
+  confActions.push_back(
+      std::make_unique<QAction>(QIcon(":/svg/exit.svg"), "退出", this));
+  confActions[4]->setShortcut(QKeySequence("Esc"));
+  connect(confActions[4].get(), &QAction::triggered, this, &Widget::onExit);
 
-  QAction* ruleAction = confMenu->addAction(QIcon(":/svg/rules.svg"),
-                                            "规则引擎", this, &Widget::onRules);
-  ruleAction->setShortcut(QKeySequence("Ctrl+R"));
+  for (const auto& conf : confActions) menus[0]->addAction(conf.get());
 
-  QAction* exitAction = confMenu->addAction(QIcon(":/svg/exit.svg"), "退出",
-                                            this, &Widget::onExit);
-  exitAction->setShortcut(QKeySequence("Esc"));
+  // -------  配置 -------
 
-  menuBar->addMenu(confMenu);
+  // -------  同步 -------
+  menus.push_back(std::move(std::make_unique<QMenu>("同步(S)", this)));
+  menuShortcuts.push_back(std::make_unique<QShortcut>(QKeySequence("S"), this));
+  // TODO 可能需要修改
+  connect(menuShortcuts[1].get(), &QShortcut::activated, this, &Widget::onSync);
 
-  QMenu* syncMenu = new QMenu("同步(S)", this);
-  QShortcut* syncShortcut = new QShortcut(QKeySequence("S"), this);
-  connect(syncShortcut, &QShortcut::activated, this, &Widget::onSync);
-
-  // QAction* syncAction = syncMenu->addAction(QIcon(":/svg/sync.svg"),
-  // "立即同步", this, &Widget::onSync);
-
-  syncAction = syncMenu->addAction(QIcon(":/svg/sync.svg"), "立即同步", this,
-                                   &Widget::onSync);
-
-  syncAction->setShortcut(QKeySequence("Ctrl+Shift+S"));
+  syncActions.push_back(
+      std::make_unique<QAction>(QIcon(":/svg/sync.svg"), "立即同步", this));
+  syncActions[0]->setShortcut(QKeySequence("Ctrl+Shift+S"));
+  connect(syncActions[0].get(), &QAction::triggered, this, &Widget::onSync);
 
   // 点击按钮时启动同步任务
-  connect(syncAction, &QAction::triggered, this, &Widget::onSyncActionClicked);
-  // 当 TriggerMonitor 触发同步任务时通知
-  // qDebug() << "monitor pointer: " << monitor;
-  // connect(monitor, &TriggerMonitor::syncTriggered, this,
-  // &Widget::onSyncTriggered);
+  connect(syncActions[0].get(), &QAction::triggered, this,
+          &Widget::onSyncActionClicked);
+
   connect(monitor, &TriggerMonitor::syncTriggered, this,
           &Widget::onSyncTriggered);
-  // qDebug() << "connect result: " << success;
 
   // 同步任务完成时恢复按钮状态
   connect(monitor, &TriggerMonitor::syncTriggered, this,
           &Widget::onTaskCompleted);
 
-  triggerTimeAction = syncMenu->addAction(
-      QIcon(":/svg/hourglass.svg"), "触发时间", this, &Widget::onSystemInfo);
-  triggerTimeAction->setShortcut(QKeySequence("Ctrl+Shift+T"));
+  syncActions.push_back(std::make_unique<QAction>(QIcon(":/svg/hourglass.svg"),
+                                                  "触发时间", this));
+  syncActions[1]->setShortcut(QKeySequence("Ctrl+Shift+T"));
 
-  stopTriggerTimeAction = syncMenu->addAction(
-      QIcon(":/svg/pause.svg"), "停止监控", this, &Widget::onStopTriggerTimeActionClicked);
-  stopTriggerTimeAction->setShortcut(QKeySequence("Ctrl+Shift+P"));
-  startTriggerTimeAction = syncMenu->addAction(
-      QIcon(":/svg/start.svg"), "开始监控", this, &Widget::onStartTriggerTimeActionClicked);
-  startTriggerTimeAction->setShortcut(QKeySequence("Ctrl+Shift+R"));
+  connect(syncActions[1].get(), &QAction::triggered, this,
+          &Widget::onSystemInfo);
 
-  menuBar->addMenu(syncMenu);
+  syncActions.push_back(
+      std::make_unique<QAction>(QIcon(":/svg/pause.svg"), "停止监控", this));
+  syncActions[2]->setShortcut(QKeySequence("Ctrl+Shift+P"));
+  connect(syncActions[2].get(), &QAction::triggered, this,
+          &Widget::onStopTriggerTimeActionClicked);
 
-  QMenu* helpMenu = new QMenu("帮助(H)", this);
-  QShortcut* helpShortcut = new QShortcut(QKeySequence("H"), this);
-  connect(helpShortcut, &QShortcut::activated, this, &Widget::onAbout);
+  syncActions.push_back(
+      std::make_unique<QAction>(QIcon(":/svg/start.svg"), "开始监控", this));
+  syncActions[3]->setShortcut(QKeySequence("Ctrl+Shift+R"));
+  connect(syncActions[3].get(), &QAction::triggered, this,
+          &Widget::onStartTriggerTimeActionClicked);
 
-  QAction* aboutAction =
-      new QAction(QIcon(":/svg/author.svg"), tr("&关于"), this);
-  aboutAction->setShortcut(QKeySequence("Ctrl+A"));
-  connect(aboutAction, &QAction::triggered, this, &Widget::onAbout);
-  helpMenu->addAction(aboutAction);
+  for (const auto& conf : syncActions) menus[1]->addAction(conf.get());
+  // -------  同步 -------
 
-  QAction* updateLogAction =
-      new QAction(QIcon(":/svg/update-log.svg"), tr("&更新日志"), this);
-  updateLogAction->setShortcut(QKeySequence("Ctrl+U"));
-  connect(updateLogAction, &QAction::triggered, this, &Widget::onUpdateLog);
-  helpMenu->addAction(updateLogAction);
+  // -------  帮助 -------
+  menus.push_back(std::move(std::make_unique<QMenu>("帮助(H)", this)));
 
-  QAction* getatestVersionAction =
-      new QAction(QIcon(":/svg/update.svg"), tr("&获取新版本"), this);
-  getatestVersionAction->setShortcut(QKeySequence("Ctrl+G"));
-  connect(getatestVersionAction, &QAction::triggered, this,
+  menuShortcuts.push_back(std::make_unique<QShortcut>(QKeySequence("H"), this));
+  connect(menuShortcuts[2].get(), &QShortcut::activated, this,
+          &Widget::onAbout);
+
+  helpActions.push_back(
+      std::make_unique<QAction>(QIcon(":/svg/author.svg"), tr("&关于"), this));
+  helpActions[0]->setShortcut(QKeySequence("Ctrl+A"));
+  connect(helpActions[0].get(), &QAction::triggered, this, &Widget::onAbout);
+
+  helpActions.push_back(std::make_unique<QAction>(QIcon(":/svg/update-log.svg"),
+                                                  tr("&更新日志"), this));
+  helpActions[1]->setShortcut(QKeySequence("Ctrl+U"));
+  connect(helpActions[1].get(), &QAction::triggered, this,
+          &Widget::onUpdateLog);
+
+  helpActions.push_back(std::make_unique<QAction>(QIcon(":/svg/update.svg"),
+                                                  tr("&获取新版本"), this));
+  helpActions[2]->setShortcut(QKeySequence("Ctrl+G"));
+  connect(helpActions[2].get(), &QAction::triggered, this,
           &Widget::onGetLatestVersion);
-  helpMenu->addAction(getatestVersionAction);
 
-  menuBar->addMenu(helpMenu);
+  for (auto& conf : helpActions) menus[2]->addAction(conf.get());
+  // -------  帮助 -------
+
+  // 将所有菜单添加到菜单栏
+  for (const auto& menu : menus) menuBar->addMenu(menu.get());
   menuBar->addSeparator();
   setMenuBar(menuBar);
 }
 
 void Widget::setupWorkspace(QVBoxLayout* mainLayout) {
-  QGroupBox* workspaceGroup = new QGroupBox("工作空间", this);
+  workspaceGroup = new QGroupBox("工作空间", this);
   workspaceLayout = new QVBoxLayout(workspaceGroup);
 
-  QScrollArea* scrollArea = new QScrollArea(this);
-  QWidget* scrollContent = new QWidget(this);
+  scrollArea = new QScrollArea(this);
+  scrollContent = new QWidget(this);
   scrollContent->setLayout(workspaceLayout);
   scrollArea->setWidget(scrollContent);
   scrollArea->setWidgetResizable(true);
 
-  int fixedHeight = 200;
+  constexpr int fixedHeight = 200;
   scrollArea->setFixedHeight(fixedHeight);
+  buttons.push_back(std::make_unique<QPushButton>("添加新行", this));
+  connect(buttons[0].get(), &QPushButton::clicked, this,
+          [this] { addFileRow(); });
 
-  QPushButton* addButton = new QPushButton("+ 添加新行", this);
-  connect(addButton, &QPushButton::clicked, this, [this]() { addFileRow(); });
-
-  QVBoxLayout* groupLayout = new QVBoxLayout(workspaceGroup);
+  groupLayout = new QVBoxLayout(workspaceGroup);
   groupLayout->addWidget(scrollArea);
-  groupLayout->addWidget(addButton);
+  groupLayout->addWidget(buttons[0].get());
 
   mainLayout->addWidget(workspaceGroup);
 }
 
 void Widget::setupLogArea(QVBoxLayout* mainLayout) {
-  QLabel* logLabel = new QLabel("日志", this);
+  labels.push_back(std::make_unique<QLabel>("日志", this));
+
   logArea = new QTextEdit(this);
   logArea->setReadOnly(true);
 
-  QPushButton* clearLogButton = new QPushButton("清空日志", this);
-  connect(clearLogButton, &QPushButton::clicked, logArea, &QTextEdit::clear);
+  buttons.push_back(std::make_unique<QPushButton>("清空日志", this));
+  connect(buttons[1].get(), &QPushButton::clicked, logArea, &QTextEdit::clear);
 
-  QHBoxLayout* logControlLayout = new QHBoxLayout();
-  logControlLayout->addWidget(logLabel);
+  logControlLayout = new QHBoxLayout();
+  logControlLayout->addWidget(labels[0].get());
   logControlLayout->addStretch();
-  logControlLayout->addWidget(clearLogButton);
+  logControlLayout->addWidget(buttons[1].get());
 
   mainLayout->addLayout(logControlLayout);
   mainLayout->addWidget(logArea);
@@ -247,11 +253,12 @@ void Widget::setupLogArea(QVBoxLayout* mainLayout) {
  * @note
  */
 void Widget::setupProgressArea(QVBoxLayout* mainLayout) {
-  QLabel* progLabel = new QLabel("任务进度", this);
+  labels.push_back(std::move(std::make_unique<QLabel>("任务进度", this)));
+
   progressBar.reset(new QProgressBar());  // 重新初始化
   progressBar->setRange(0, 100);          // 进度条范围 0-100
   progressBar->setValue(0);               // 初始值为 0
-  mainLayout->addWidget(progLabel);
+  mainLayout->addWidget(labels[1].get());
   mainLayout->addWidget(progressBar.get());  // 添加到布局
 
   // 存储进度条指针，方便后续更新
@@ -261,10 +268,10 @@ void Widget::setupProgressArea(QVBoxLayout* mainLayout) {
 /**
  * @brief 更新进度条
  *
- * @param value 进度条值
+ * @param progress 进度条值
  * @return void
  */
-void Widget::updateProgressBar(int progress) const {
+void Widget::updateProgressBar(const int progress) const {
   if (progressBar) {
     progressBar->setValue(progress);  // 更新进度条的值
   }
@@ -280,25 +287,23 @@ void Widget::updateProgressBar(int progress) const {
 // }
 
 void Widget::addFileRow() {
-  QHBoxLayout* rowLayout = new QHBoxLayout();
+  auto* rowLayout = new QHBoxLayout();
 
   // 使用 QPointer 管理控件指针
-  QPointer<QPushButton> fileDialogButton1 =
-      new QPushButton("选择监听文件夹", this);
-  QPointer<QLineEdit> fileInfo1 = new QLineEdit(this);
+  QPointer fileDialogButton1 = new QPushButton("选择监听文件夹", this);
+  QPointer fileInfo1 = new QLineEdit(this);
   fileInfo1->setReadOnly(true);
 
-  QPointer<QPushButton> fileDialogButton2 =
-      new QPushButton("选择同步文件夹", this);
-  QPointer<QLineEdit> fileInfo2 = new QLineEdit(this);
+  QPointer fileDialogButton2 = new QPushButton("选择同步文件夹", this);
+  QPointer fileInfo2 = new QLineEdit(this);
   fileInfo2->setReadOnly(true);
 
-  QPointer<QPushButton> deleteButton = new QPushButton("删除", this);
+  QPointer deleteButton = new QPushButton("删除", this);
 
   // 连接信号槽
   connect(fileDialogButton1, &QPushButton::clicked, this,
-          [fileInfo1, fileInfo2, this]() {
-            QString filePath = QFileDialog::getExistingDirectory(
+          [fileInfo1, fileInfo2, this] {
+            const QString filePath = QFileDialog::getExistingDirectory(
                 nullptr, "选择监听原始文件夹");
             if (!filePath.isEmpty()) {
               if (SyncUtils::checkDocCompare(fileInfo2->text(), filePath)) {
@@ -312,8 +317,8 @@ void Widget::addFileRow() {
           });
 
   connect(fileDialogButton2, &QPushButton::clicked, this,
-          [fileInfo1, fileInfo2, this]() {
-            QString filePath = QFileDialog::getExistingDirectory(
+          [fileInfo1, fileInfo2, this] {
+            const QString filePath = QFileDialog::getExistingDirectory(
                 nullptr, "选择目标路径文件夹");
             if (!filePath.isEmpty()) {
               if (SyncUtils::checkDocCompare(fileInfo1->text(), filePath)) {
@@ -328,7 +333,7 @@ void Widget::addFileRow() {
 
   connect(deleteButton, &QPushButton::clicked, this,
           [this, rowLayout, fileInfo1, fileInfo2, fileDialogButton1,
-           fileDialogButton2, deleteButton]() {
+           fileDialogButton2, deleteButton] {
             // 从布局中移除控件
             rowLayout->removeWidget(fileDialogButton1);
             rowLayout->removeWidget(fileInfo1);
@@ -367,10 +372,10 @@ void Widget::loadWorkspaceConfig() {
     return;
   }
 
-  QByteArray data = configFile.readAll();
+  const QByteArray data = configFile.readAll();
   configFile.close();
 
-  QJsonDocument doc = QJsonDocument::fromJson(data);
+  const QJsonDocument doc = QJsonDocument::fromJson(data);
   if (!doc.isObject()) {
     qWarning() << "配置文件格式错误，创建默认配置";
     saveWorkspaceConfig();
@@ -378,7 +383,7 @@ void Widget::loadWorkspaceConfig() {
   }
 
   QJsonArray rows = doc.object().value("workspace").toArray();
-  for (const QJsonValue& value : rows) {
+  for (const auto& value : rows) {
     QJsonObject row = value.toObject();
 
     QString file1 = row.value("file1").toString();
@@ -389,9 +394,9 @@ void Widget::loadWorkspaceConfig() {
     QHBoxLayout* rowLayout =
         item ? qobject_cast<QHBoxLayout*>(item->layout()) : nullptr;
     if (rowLayout) {
-      QLineEdit* fileInfo1 =
+      auto* fileInfo1 =
           qobject_cast<QLineEdit*>(rowLayout->itemAt(1)->widget());
-      QLineEdit* fileInfo2 =
+      auto* fileInfo2 =
           qobject_cast<QLineEdit*>(rowLayout->itemAt(3)->widget());
       if (fileInfo1 && fileInfo2) {
         fileInfo1->setText(file1);
@@ -401,17 +406,17 @@ void Widget::loadWorkspaceConfig() {
   }
 }
 
-void Widget::saveWorkspaceConfig() {
+void Widget::saveWorkspaceConfig() const {
   QJsonArray rows;
   for (int i = 0; i < workspaceLayout->count(); ++i) {
     QLayoutItem* item = workspaceLayout->itemAt(i);
-    QHBoxLayout* rowLayout =
+    const QHBoxLayout* rowLayout =
         item ? qobject_cast<QHBoxLayout*>(item->layout()) : nullptr;
     if (!rowLayout) continue;
 
-    QLineEdit* fileInfo1 =
+    const auto* fileInfo1 =
         qobject_cast<QLineEdit*>(rowLayout->itemAt(1)->widget());
-    QLineEdit* fileInfo2 =
+    const auto* fileInfo2 =
         qobject_cast<QLineEdit*>(rowLayout->itemAt(3)->widget());
 
     if (fileInfo1 && fileInfo2) {
@@ -425,7 +430,7 @@ void Widget::saveWorkspaceConfig() {
   QJsonObject config;
   config["workspace"] = rows;
 
-  QJsonDocument doc(config);
+  const QJsonDocument doc(config);
   QFile configFile(configFilePath);
   if (!configFile.open(QIODevice::WriteOnly)) {
     qWarning() << "无法写入配置文件";
@@ -436,20 +441,18 @@ void Widget::saveWorkspaceConfig() {
   configFile.close();
 }
 
-void Widget::clearWorkspaceConfig() {
+void Widget::clearWorkspaceConfig() const {
   if (!workspaceLayout) {
     qDebug() << "workspaceLayout 为空，无需清理";
     return;
   }
-
-  qDebug() << "开始清理所有文件行";
 
   // 遍历 workspaceLayout
   while (workspaceLayout->count() > 0) {
     QLayoutItem* item = workspaceLayout->takeAt(0);
     if (!item) continue;
 
-    QHBoxLayout* rowLayout = qobject_cast<QHBoxLayout*>(item->layout());
+    auto* rowLayout = qobject_cast<QHBoxLayout*>(item->layout());
     if (!rowLayout) {
       delete item;
       continue;
@@ -460,8 +463,7 @@ void Widget::clearWorkspaceConfig() {
       QLayoutItem* rowItem = rowLayout->takeAt(0);
       if (!rowItem) continue;
 
-      QWidget* widget = rowItem->widget();
-      if (widget) {
+      if (QWidget* widget = rowItem->widget()) {
         widget->hide();
         widget->deleteLater();
       }
@@ -472,19 +474,14 @@ void Widget::clearWorkspaceConfig() {
     // 删除行布局
     delete rowLayout;
   }
-
-  qDebug() << "文件行清理完成";
 }
 
-void Widget::onNewProject() {
-  qDebug() << "新建项目";
-  clearWorkspaceConfig();
-}
+void Widget::onNewProject() const { clearWorkspaceConfig(); }
 
 void Widget::onOpenConfiguration() {
   qInfo() << "加载配置...";
 
-  QString selectedFilePath = QFileDialog::getOpenFileName(
+  const QString selectedFilePath = QFileDialog::getOpenFileName(
       this, tr("选择配置文件"), "", tr("配置文件 (*.json);;所有文件 (*)"));
 
   if (!selectedFilePath.isEmpty()) {
@@ -500,123 +497,85 @@ void Widget::onOpenConfiguration() {
   }
 }
 
-void Widget::onExit() { QApplication::quit(); }
+void Widget::onExit() {
+  // TODO 任务进行中，原则上不允许退出程序，syncAction，后续需要修改
+  if (!syncActions[0].get()->isEnabled()) {
+    QMessageBox::warning(this, "警告", "任务进行中，不允许退出程序！");
+  } else {
+    QApplication::quit();
+  }
+}
 
 void Widget::onAbout() {
   QDialog dialog(this);
-  dialog.setWindowTitle("关于文件同步管理器");
+  dialog.setWindowTitle(QStringLiteral("关于文件同步管理器"));
   dialog.setFixedSize(800, 480);
 
-  QVBoxLayout* layout = new QVBoxLayout(&dialog);
+  // 使用 unique_ptr 管理布局，后续通过 setLayout 转移所有权
+  auto layout = std::make_unique<QVBoxLayout>();
+  layout->setSpacing(20);
+  layout->addStretch();
 
-  auto* lintr =
-      new QLabel("软件简介：基于C++&Qt开发的文件同步管理器。", &dialog);
-  auto* lauthor = new QLabel("作者：LEEYANGY", &dialog);
-  auto* laddr = new QLabel("开源地址：", &dialog);
-
-  QLabel* linkLabel = new QLabel(
-      "<a "
-      "href=\"https://github.com/leeyangyangy/qt_demo-bk/tree/"
-      "filesync-cmake-clion\">"
-      "https://github.com/leeyangyangy/qt_demo-bk/tree/filesync-cmake-clion</"
-      "a>",
-      &dialog);
-  linkLabel->setTextInteractionFlags(Qt::TextSelectableByMouse |
+  // Lambda 返回 unique_ptr 以自动管理临时对象
+  auto createLabel = [&dialog](const QString& text, bool isLink = false) {
+    auto label = std::make_unique<QLabel>(&dialog);  // 直接设置父对象
+    label->setText(text);
+    if (isLink) {
+      label->setTextInteractionFlags(Qt::TextSelectableByMouse |
                                      Qt::LinksAccessibleByMouse);
-  linkLabel->setOpenExternalLinks(true);  // 允许点击打开链接
+      label->setOpenExternalLinks(true);
+    }
+    return label;
+  };
 
-  layout->addWidget(lintr);
-  layout->addWidget(lauthor);
-  layout->addWidget(laddr);
-  layout->addWidget(linkLabel);
+  // 创建标签并转移所有权到父对象 dialog
+  auto softwareInfo =
+      createLabel(QStringLiteral("软件简介：基于C++&Qt开发的文件同步管理器。"));
+  layout->addWidget(softwareInfo.release());  // release() 转移所有权到布局
 
-  QPushButton* okButton = new QPushButton("确定", &dialog);
-  layout->addWidget(okButton);
-  connect(okButton, &QPushButton::clicked, &dialog, &QDialog::accept);
+  auto author = createLabel(QStringLiteral("作者：LEEYANGY"));
+  layout->addWidget(author.release());
 
-  dialog.setLayout(layout);
+  auto link =
+      createLabel(QStringLiteral("<a "
+                                 "href=\"https://github.com/leeyangyangy/"
+                                 "qt_demo-bk/tree/filesync-cmake-clion\">"
+                                 "https://github.com/leeyangyangy/qt_demo-bk/"
+                                 "tree/filesync-cmake-clion</a>"),
+                  true);
+  layout->addWidget(link.release());
+
+  // 分隔线
+  auto sepLine = std::make_unique<QFrame>(&dialog);
+  sepLine->setFrameShape(QFrame::HLine);
+  sepLine->setFrameShadow(QFrame::Sunken);
+  // 获取 link 的索引需在 release 前操作（此处因已 release 需调整逻辑）
+  const int linkIndex = layout->count() - 1;  // 假设 link 是最后添加的控件
+  layout->insertWidget(linkIndex + 1, sepLine.release());
+
+  // 确定按钮
+  auto okButton =
+      std::make_unique<QPushButton>(QStringLiteral("确定"), &dialog);
+  connect(okButton.get(), &QPushButton::clicked, &dialog, &QDialog::accept);
+  layout->addWidget(okButton.release(), 0, Qt::AlignBottom | Qt::AlignCenter);
+
+  layout->addStretch();
+
+  // 将布局所有权转移给 dialog
+  dialog.setLayout(layout.release());
   dialog.exec();
 }
 
-void Widget::onSync() {
-  // QFile configFile(configFilePath);
-  // if (!configFile.open(QIODevice::ReadOnly)) {
-  //   qWarning() << "无法打开配置文件，创建默认配置";
-  //   return;
-  // }
-  //
-  // QByteArray data = configFile.readAll();
-  // configFile.close();
-  //
-  // QJsonDocument doc = QJsonDocument::fromJson(data);
-  // if (!doc.isObject()) {
-  //   qWarning() << "配置文件格式错误，创建默认配置";
-  //   return;
-  // }
-  // int taskCount = 0;
-  // completedTasks.store(0);        // 任务开始前重置计数器
-  // updateProgressBar(taskCount);
-  // QJsonArray rows = doc.object().value("workspace").toArray();
-  // int totalTasks = rows.size();
-  // for (const QJsonValue& value : rows) {
-  //   QJsonObject row = value.toObject();
-  //
-  //   QString file1 = row.value("file1").toString();
-  //   QString file2 = row.value("file2").toString();
-  //
-  //   if (SyncUtils::checkDocCompare(file1, file2)) {
-  //     QMessageBox::about(this, "提示", "文件夹路径相同，请检查并修改");
-  //     return;
-  //   }
-  //
-  //   if (!SyncUtils::checkFileIsDir(file1, file2)) {
-  //     QMessageBox::warning(this, "提示",
-  //                          QString("监听路径\n%1\n"
-  //                                  "或\n"
-  //                                  "目标路径\n%2\n不是文件夹，请检查并修改")
-  //                              .arg(file1)
-  //                              .arg(file2));
-  //     return;
-  //   }
-  //
-  //   if (file1.isEmpty() || file2.isEmpty()) {
-  //     QMessageBox::about(this, "提示", "文件夹选择有误，请检查并修改");
-  //   } else {
-  //     ++taskCount;
-  //     this->syncAction->setEnabled(false);
-  //     const auto task = new SyncTask(file1, file2);
-  //     connect(task, &SyncTask::taskCompleted, this,
-  //             [this, taskCount, totalTasks](const QString& source,
-  //                                           const QString& target) {
-  //               this->completedTasks.fetch_add(
-  //                   1, std::memory_order_relaxed);  // **原子增加**
-  //               int progress =
-  //                   static_cast<double>(completedTasks) / totalTasks * 100;
-  //               qInfo() << "同步完成:" << source << " -> " << target
-  //                       << "taskCount:" << taskCount
-  //                       << "completedTasks:" << completedTasks
-  //                       << "totalTasks:" << totalTasks
-  //                       << "progress:" << progress;
-  //
-  //               updateProgressBar(progress);
-  //               if (completedTasks == taskCount) {
-  //                 // QMessageBox::about(this, "任务完成",
-  //                 // "所有同步任务已完成！");
-  //                 syncAction->setEnabled(true);
-  //               }
-  //             });
-  //
-  //     QThreadPool::globalInstance()->start(task);
-  //   }
-  // }
-  monitor->triggerSync(configFilePath);
-}
+void Widget::onSync() const { monitor->triggerSync(configFilePath); }
 
 // TODO
 void Widget::onUpdateLog() {
   QMessageBox::about(this, "更新日志",
                      "开发计划--> 1.2 支持局域网文件互传\n"
-                     "当前开发进度-->即将支持ftp、hdfs等传输\n"
+                     "当前版本-->1.0.1\n"
+                     "当前开发进度-->添加持hdfs等传输?\n"
+                     "优化文件校验逻辑\n"
+                     "1.0.1-->优化可能导致内存泄漏代码\n"
                      "1.0-->挂载磁盘文件之间相互传输");
 }
 
@@ -625,16 +584,16 @@ void Widget::onGetLatestVersion() {
   QMessageBox::about(this, "获取新版本", "已经是最新版本了\n");
 }
 
-void Widget::onSaveConfiguration() {
+void Widget::onSaveConfiguration() const {
   qDebug() << "保存配置文件";
   saveWorkspaceConfig();
 }
 
 // TODO
-void Widget::onSystemInfo() { monitor->showSettingsDialog(); }
+void Widget::onSystemInfo() const { monitor->showSettingsDialog(); }
 
 // TODO
-void Widget::onRules() {
+void Widget::onRules() const {
   qDebug() << "规则管理 -- 开发中，当前使用程序中的默认规则";
 }
 
@@ -711,8 +670,7 @@ void Widget::logMessageHandler(QtMsgType type,
   static QString logFile = logDir + "/app.log";
 
   // **确保日志目录存在**
-  QDir dir(logDir);
-  if (!dir.exists()) {
+  if (QDir dir(logDir); !dir.exists()) {
     dir.mkpath(logDir);
   }
 
@@ -732,19 +690,16 @@ void Widget::logMessageHandler(QtMsgType type,
  * @param dest 目标路径
  * @return void
  ***/
-// void Widget::checkFileVersion(QString src, QString dest) {}
-
-// TODO
-// void Widget::writeErrLog(QString msg) {
-//  // 获取当前路径，保存日志到 err/task.log
-// }
+void Widget::checkFileVersion(const QString& src, const QString& dest) const {
+  // TODO 提供界面供向用户直接发起同步检查要求
+}
 
 void Widget::onSyncActionClicked() const {
   // 若已有任务在运行，则不允许重复点击
-  if (syncAction->isEnabled()) return;
+  if (syncActions[0].get()->isEnabled()) return;
 
   // 禁用按钮，防止重复点击
-  syncAction->setEnabled(false);
+  syncActions[0].get()->setEnabled(false);
   // logWidget->appendPlainText("开始同步任务...");
   // qDebug() << "开始同步任务...onSyncActionClicked";
   // 立即触发同步任务（通过 TriggerMonitor 接口）
@@ -757,7 +712,7 @@ void Widget::onTaskCompleted(const QString& source,
   // target));
   qDebug() << QString("同步任务完成：%1 -> %2").arg(source, target);
   // 同步任务完成后重新启用同步按钮
-  syncAction->setEnabled(true);
+  syncActions[0].get()->setEnabled(true);
 }
 
 void Widget::onSyncTriggered(const QString& source, const QString& target) {
@@ -767,9 +722,11 @@ void Widget::onSyncTriggered(const QString& source, const QString& target) {
 }
 
 // 所有按键禁用？
-void Widget::setSyncActionEnabled(bool status) const {
-  syncAction->setEnabled(status);
-  triggerTimeAction->setEnabled(status);
+void Widget::setSyncActionEnabled(const bool status) const {
+  for (auto& conf : confActions) conf->setEnabled(status);
+  for (auto& syncAction : syncActions) syncAction->setEnabled(status);
+  // buttons[0].get()->setEnabled(status);
+  // TODO 工作空间的按键也需要禁用？
 }
 
 void Widget::onStopTriggerTimeActionClicked() const {
