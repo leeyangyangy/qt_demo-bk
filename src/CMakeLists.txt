@@ -4,6 +4,7 @@ qt5_add_resources(QT_RESOURCES ${QRC_SOURCE_FILE})
 
 # 定义目标
 add_executable(${PROJECT_NAME}
+        WIN32
         widget.ui
         ${QT_RESOURCES}
         ../icon.rc
@@ -39,15 +40,15 @@ if (WIN32 AND NOT DEFINED CMAKE_TOOLCHAIN_FILE)
     set(DEBUG_SUFFIX)
     if (MSVC AND CMAKE_BUILD_TYPE MATCHES "Debug")
         set(DEBUG_SUFFIX "d")
-    endif()
+    endif ()
 
     set(QT_INSTALL_PATH "${CMAKE_PREFIX_PATH}")
     if (NOT EXISTS "${QT_INSTALL_PATH}/bin")
         set(QT_INSTALL_PATH "${QT_INSTALL_PATH}/..")
         if (NOT EXISTS "${QT_INSTALL_PATH}/bin")
             set(QT_INSTALL_PATH "${QT_INSTALL_PATH}/..")
-        endif()
-    endif()
+        endif ()
+    endif ()
 
     # 创建插件目录并复制平台插件
     if (EXISTS "${QT_INSTALL_PATH}/plugins/platforms/qwindows${DEBUG_SUFFIX}.dll")
@@ -55,21 +56,21 @@ if (WIN32 AND NOT DEFINED CMAKE_TOOLCHAIN_FILE)
                 COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:${PROJECT_NAME}>/plugins/platforms/")
         add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
                 COMMAND ${CMAKE_COMMAND} -E copy "${QT_INSTALL_PATH}/plugins/platforms/qwindows${DEBUG_SUFFIX}.dll" "$<TARGET_FILE_DIR:${PROJECT_NAME}>/plugins/platforms/")
-    endif()
+    endif ()
 
     # 复制所需的 Qt DLL 文件
     foreach (QT_LIB Core Gui Widgets)
         add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
                 COMMAND ${CMAKE_COMMAND} -E copy "${QT_INSTALL_PATH}/bin/Qt5${QT_LIB}${DEBUG_SUFFIX}.dll" "$<TARGET_FILE_DIR:${PROJECT_NAME}>"
         )
-    endforeach()
+    endforeach ()
 
     # 复制 MinGW DLL
     foreach (DLL ${MINGW_DLLS})
         add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
                 COMMAND ${CMAKE_COMMAND} -E copy_if_different "${DLL}" "$<TARGET_FILE_DIR:${PROJECT_NAME}>"
         )
-    endforeach()
+    endforeach ()
 
     add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
             COMMAND "${QT_INSTALL_PATH}/bin/windeployqt.exe"
@@ -78,7 +79,7 @@ if (WIN32 AND NOT DEFINED CMAKE_TOOLCHAIN_FILE)
             --release
             "$<TARGET_FILE:${PROJECT_NAME}>"
     )
-endif()
+endif ()
 
 # 设置安装前缀为 build/install
 set(CMAKE_INSTALL_PREFIX ${CMAKE_BINARY_DIR}/install)
@@ -104,7 +105,7 @@ if (WIN32)
         file(INSTALL \"${CMAKE_PREFIX_PATH}/../../plugins/platforms/qwindows.dll\"
             DESTINATION \"${CMAKE_INSTALL_PREFIX}/bin/plugins/platforms\")
     ")
-endif()
+endif ()
 
 # 调试信息
 message(STATUS "Qt Install Path: ${QT_INSTALL_PATH}")
