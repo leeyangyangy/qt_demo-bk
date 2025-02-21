@@ -13,13 +13,14 @@ add_executable(${PROJECT_NAME}
         monitor/TriggerMonitor.cpp
         utils/regex/re.c
         task/FileMonitor.cpp
-        task/FileProcessTask.cpp
         task/SyncTask.cpp
         init/Env.cpp
         utils/SyncUtils.cpp
+        utils/rule/RuleHighlighter.cpp
+        utils/rule/RuleEditDialog.cpp
 )
 
-# add QXlsx libs
+# add QXlsx、xxHash libs
 target_include_directories(${PROJECT_NAME}
         PRIVATE
         ${CMAKE_SOURCE_DIR}/include
@@ -27,7 +28,7 @@ target_include_directories(${PROJECT_NAME}
 )
 
 # 链接 Qt 库
-target_link_libraries(${PROJECT_NAME} Qt5::Core Qt5::Gui Qt5::Widgets Qt5::Svg Qt5::Network Qt5::Concurrent QXlsx)
+target_link_libraries(${PROJECT_NAME} Qt5::Core Qt5::Sql Qt5::Gui Qt5::Widgets Qt5::Svg Qt5::Network Qt5::Concurrent QXlsx leveldb)
 
 set(MINGW_DLLS
         "${MINGW_BIN_PATH}/${LIBGCC_DLL}"

@@ -35,7 +35,7 @@ if (NOT CMAKE_PREFIX_PATH)
     endif ()
 endif ()
 
-find_package(Qt5 COMPONENTS Core Gui Widgets Svg Network Test Concurrent REQUIRED)
+find_package(Qt5 COMPONENTS Core Sql Gui Widgets Svg Network Test Concurrent REQUIRED)
 
 # 添加子目录，并传递 PROJECT_NAME
 add_subdirectory(libs)
@@ -53,3 +53,16 @@ message(STATUS "CMAKE_BUILD_TYPE: ${CMAKE_BUILD_TYPE}")
 # 添加测试支持
 enable_testing()
 add_subdirectory(test)
+
+# 覆盖率编译选项（仅限 Debug 模式）
+if (CMAKE_BUILD_TYPE STREQUAL "Debug")
+    if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        # GCC/Clang 标志
+        add_compile_options(-fprofile-arcs -ftest-coverage)
+        add_link_options(--coverage)
+    elseif (CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
+        # MSVC 标志（需配合 OpenCppCoverage）
+        add_compile_options(/DEBUG)
+    endif()
+endif()
+
