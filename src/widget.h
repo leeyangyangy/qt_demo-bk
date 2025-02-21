@@ -47,6 +47,9 @@ class Widget : public QMainWindow {
  protected:
   void closeEvent(QCloseEvent* event) override;
 
+ signals:
+  void rulesUpdated();
+
  private:
   // UI 组件
   Ui::Widget* ui;
@@ -136,9 +139,18 @@ class Widget : public QMainWindow {
   std::vector<std::unique_ptr<QAction>> syncActions;
 
   /**
-   *
+   * 帮助action
    */
   std::vector<std::unique_ptr<QAction>> helpActions;
+
+  /**
+   * 0. 文件校验
+   * 1. 手动同步
+   * 3. 开启服务
+   * 4. 关闭服务
+   * 5. 注册系统开机自启
+   */
+  std::vector<std::unique_ptr<QAction>> advanceActions;
 
   // 配置文件操作
   void loadWorkspaceConfig();         // 加载工作空间配置
@@ -150,6 +162,17 @@ class Widget : public QMainWindow {
 
   std::atomic<int> completedTasks{0};  // 原子计数器，用于记录完成的任务数量
 
+  QAction* autoStartAction;         // 可勾选的菜单动作
+  bool isAutoStartEnabled() const;  // 检查自启状态
+  void setAutoStart(bool enable);   // 设置自启状态
+
+  // 平台特定实现
+#ifdef Q_OS_WIN
+  const QString winRegPath =
+      "HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Run";
+  const QString winAppKey = "FileSyncManager";
+#endif
+
  private slots:
   // 槽函数
   void onNewProject() const;         // 新建配置
@@ -159,9 +182,12 @@ class Widget : public QMainWindow {
   void onAbout();                    // 关于信息
   void onSync() const;               // 立即同步
   void onSystemInfo() const;         // 系统信息
-  void onUpdateLog();                // 更新日志
-  void onGetLatestVersion();         // 获取最新版本
-  void onRules() const;              // 规则管理
+  QString getRuleFilePath() const;
+  void createDefaultRules() const;
+  void onUpdateLog();         // 更新日志
+  void onGetLatestVersion();  // 获取最新版本
+  void onRules();             // 规则管理
+  void reloadRules();
 
   // 点击同步按钮时触发
   void onSyncActionClicked() const;
@@ -169,6 +195,8 @@ class Widget : public QMainWindow {
   void onTaskCompleted(const QString& source, const QString& target) const;
   // 当触发同步任务时的通知（可用于日志记录）
   static void onSyncTriggered(const QString& source, const QString& target);
+
+  void toggleAutoStart(bool checked);  // 响应勾选状态变化
 };
 
 #endif  // WIDGET_H

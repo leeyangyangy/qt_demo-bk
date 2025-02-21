@@ -94,7 +94,7 @@ void TriggerMonitor::saveConfig() const {
   config["lastSyncTime"] = m_lastSyncTime.toString(Qt::ISODate);
 
   const auto configPath =
-      QDir::current().filePath(QString("%1").arg(CONFIG_FILE));
+      QDir::current().filePath(QString("%1/%2").arg("etc").arg(CONFIG_FILE));
   QFile configFile(configPath);
   if (configFile.open(QIODevice::WriteOnly)) {
     QJsonDocument doc(config);

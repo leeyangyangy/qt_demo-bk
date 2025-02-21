@@ -22,6 +22,8 @@
         <file>svg/rules.svg</file>
         <file>svg/pause.svg</file>
         <file>svg/start.svg</file>
+        <file>svg/autoStartOn.svg</file>
+        <file>svg/autoStartOff.svg</file>
     </qresource>
 
     <!--png-->

@@ -3,8 +3,13 @@
 #include <qpointer.h>
 
 // #include "task/FileMonitor.h"
+#include <qprocess.h>
+
+#include <QSettings>
+
 #include "task/SyncTask.h"
 #include "utils/SyncUtils.h"
+#include "utils/rule/RuleEditDialog.h"
 
 // 定义静态成员变量
 QTextEdit* Widget::globalLogArea = nullptr;
@@ -66,6 +71,9 @@ Widget::Widget(QWidget* parent)
   qInstallMessageHandler(logMessageHandler);
 
   loadWorkspaceConfig();
+  // 连接信号槽
+  connect(this, &Widget::rulesUpdated, this, &Widget::reloadRules);
+  connect(advanceActions[0].get(), &QAction::toggled, this, &Widget::toggleAutoStart);
 }
 
 Widget::~Widget() {
@@ -131,7 +139,14 @@ void Widget::setupMenuBar() {
   menus.push_back(std::move(std::make_unique<QMenu>("同步(S)", this)));
   menuShortcuts.push_back(std::make_unique<QShortcut>(QKeySequence("S"), this));
   // TODO 可能需要修改
-  connect(menuShortcuts[1].get(), &QShortcut::activated, this, &Widget::onSync);
+  connect(menuShortcuts[1].get(), &QShortcut::activated, this, [this] {
+    // menus[1]->popup(QCursor::pos());  // 在鼠标当前位置弹出菜单
+    // 获取工具栏右下角的全局坐标
+    const QPoint toolbarGlobalPos =
+        menuBar->mapToGlobal(menuBar->rect().bottomRight());
+    // 偏移 10 像素避免遮挡
+    menus[1]->popup(toolbarGlobalPos);
+  });
 
   syncActions.push_back(
       std::make_unique<QAction>(QIcon(":/svg/sync.svg"), "立即同步", this));
@@ -197,6 +212,36 @@ void Widget::setupMenuBar() {
 
   for (auto& conf : helpActions) menus[2]->addAction(conf.get());
   // -------  帮助 -------
+
+  // ------- 高级功能 -------
+  menus.push_back(std::make_unique<QMenu>(tr("高级功能(D)")));
+  menuShortcuts.push_back(std::make_unique<QShortcut>(QKeySequence("D"), this));
+  connect(menuShortcuts[3].get(), &QShortcut::activated, this, [this] {
+    // menus[1]->popup(QCursor::pos());  // 在鼠标当前位置弹出菜单
+    // 获取工具栏右下角的全局坐标
+    const QPoint toolbarGlobalPos =
+        menuBar->mapToGlobal(menuBar->rect().bottomRight());
+    // 偏移 10 像素避免遮挡
+    menus[3]->popup(toolbarGlobalPos);
+  });
+
+  advanceActions.push_back(std::make_unique<QAction>(
+      QIcon(":/svg/autoStartOn.svg"), tr("&开机自启"), this));
+  advanceActions[0]->setShortcut(QKeySequence("Ctrl+D"));
+  advanceActions[0]->setCheckable(true);                // 设置可选状态
+  advanceActions[0]->setChecked(isAutoStartEnabled());  // 初始状态
+  // connect(advanceActions[0].get(), &QAction::triggered, this, [this] {
+  //   QProcess::startDetached("sh", QStringList() << "-c" << "echo
+  //   '开机自启'");
+  // });
+
+  // 连接信号槽
+  // connect(advanceActions[0].get(), &QAction::toggled, this,
+  //         &Widget::toggleAutoStart);
+
+  for (const auto& action : advanceActions) menus[3]->addAction(action.get());
+
+  // ------- 高级功能 -------
 
   // 将所有菜单添加到菜单栏
   for (const auto& menu : menus) menuBar->addMenu(menu.get());
@@ -589,12 +634,76 @@ void Widget::onSaveConfiguration() const {
   saveWorkspaceConfig();
 }
 
-// TODO
 void Widget::onSystemInfo() const { monitor->showSettingsDialog(); }
 
-// TODO
-void Widget::onRules() const {
-  qDebug() << "规则管理 -- 开发中，当前使用程序中的默认规则";
+/**
+ * @brief 获取存储路径
+ * @return QString
+ */
+QString Widget::getRuleFilePath() const {
+  return QDir::current().filePath("%1/%2").arg("etc", "FileSyncRules.conf");
+}
+
+/**
+ * @brief 创建默认规则
+ */
+void Widget::createDefaultRules() const {
+  const QString defaultContent =
+      "[FileSync Rules v1.0.1]\n"
+      "# 排除目录\n"
+      "exclude_dirs = /temp/, /backup/\n\n"
+      "# 排除文件类型\n"
+      "exclude_exts = *.log, *.tmp\n\n"
+      "# 同步间隔（分钟）{目前不可用}\n"
+      "sync_interval = 30\n\n"
+      "# 最大历史版本数 {目前不可用}\n"
+      "max_history = 5";
+
+  QFile file(getRuleFilePath());
+  if (file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+    QTextStream(&file) << defaultContent;
+    file.close();
+  }
+}
+
+void Widget::onRules() {
+  // 确保文件存在
+  const QString rulePath = getRuleFilePath();
+  if (!QFile::exists(rulePath)) {
+    createDefaultRules();
+    QMessageBox::information(this, tr("欢迎"),
+                             tr("已创建默认规则文件：\n") + rulePath);
+  }
+
+  // 读取内容
+  QFile file(rulePath);
+  if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+    QMessageBox::critical(this, tr("错误"), tr("无法读取规则文件"));
+    return;
+  }
+  QString content = QTextStream(&file).readAll();
+  file.close();
+
+  // 显示编辑对话框
+  if (RuleEditDialog dialog(content, this);
+      dialog.exec() == QDialog::Accepted) {
+    // 保存修改
+    if (file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+      QTextStream(&file) << dialog.getEditedContent();
+      file.close();
+      QMessageBox::information(this, tr("成功"), tr("规则已保存"));
+
+      // 触发规则重载
+      emit rulesUpdated();
+    } else {
+      QMessageBox::critical(this, tr("错误"), tr("无法保存规则文件"));
+    }
+  }
+}
+
+void Widget::reloadRules() {
+  qDebug() << "重新加载规则配置...";
+  // TODO
 }
 
 // 不记录日志
@@ -735,4 +844,65 @@ void Widget::onStopTriggerTimeActionClicked() const {
 
 void Widget::onStartTriggerTimeActionClicked() const {
   monitor->startMonitoring(configFilePath);
+}
+
+void Widget::toggleAutoStart(const bool checked) {
+  qDebug() << "toggleAutoStart: " << checked;
+  setAutoStart(checked);
+
+  // 验证实际状态是否生效
+  if (const bool actualState = isAutoStartEnabled(); actualState != checked) {
+    QMessageBox::warning(this, tr("设置失败"),
+                         tr("无法修改启动项，请检查程序权限"));
+    advanceActions[0].get()->setChecked(actualState);  // 恢复正确状态
+  }
+  // 更新菜单项文本
+  advanceActions[0].get()->setText(checked ? tr("✔ 开机自启动")
+                                           : tr("× 开机自启动"));
+}
+
+// ======================= 平台相关实现 ========================
+bool Widget::isAutoStartEnabled() const {
+#ifdef Q_OS_WIN
+  const QSettings settings(
+      "HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Run",
+      QSettings::NativeFormat);
+  return settings.contains(winAppKey);
+#elif defined(Q_OS_LINUX)
+  return QFile::exists(
+      QStandardPaths::writableLocation(QStandardPaths::ConfigLocation) +
+      "/autostart/myapp.desktop");
+#endif
+  return false;
+}
+
+void Widget::setAutoStart(bool enable) {
+#ifdef Q_OS_WIN
+  QSettings settings(
+      "HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Run",
+      QSettings::NativeFormat);
+  if (enable) {
+    const QString appPath =
+        QDir::toNativeSeparators(QCoreApplication::applicationFilePath());
+    settings.setValue(winAppKey, "\"" + appPath + "\"");  // 处理路径空格
+  } else {
+    settings.remove(winAppKey);
+  }
+#elif defined(Q_OS_LINUX
+  QString desktopPath =
+      QStandardPaths::writableLocation(QStandardPaths::ConfigLocation) +
+      "/autostart/myapp.desktop";
+  if (enable) {
+    QFile file(desktopPath);
+    if (file.open(QIODevice::WriteOnly)) {
+      QTextStream stream(&file);
+      stream << "[Desktop Entry]\n"
+             << "Type=Application\n"
+             << "Name=MyApp\n"
+             << "Exec=" << QCoreApplication::applicationFilePath() << "\n";
+    }
+  } else {
+    QFile::remove(desktopPath);
+  }
+#endif
 }
