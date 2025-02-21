@@ -1,3 +1,9 @@
 [submodule "libs/QXlsx"]
 	path = libs/QXlsx
 	url = https://github.com/QtExcel/QXlsx.git
+[submodule "libs/xxHash"]
+	path = libs/xxHash
+	url = https://github.com/Cyan4973/xxHash.git
+[submodule "libs/leveldb"]
+	path = libs/leveldb
+	url = https://github.com/google/leveldb.git
