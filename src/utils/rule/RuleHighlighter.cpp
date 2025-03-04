@@ -14,7 +14,7 @@ RuleHighlighter::RuleHighlighter(QTextDocument* parent)
   sectionFormat.setForeground(Qt::blue);
   sectionFormat.setFontWeight(QFont::Bold);
   highlightingRules.append({
-      QRegularExpression("\\[[^\\]]+\\]"),
+      QRegularExpression(R"(\[[^\]]+\])"),
       sectionFormat
   });
 
@@ -34,11 +34,11 @@ RuleHighlighter::RuleHighlighter(QTextDocument* parent)
 }
 
 void RuleHighlighter::highlightBlock(const QString& text) {
-  for (const auto& rule : highlightingRules) {
-    QRegularExpressionMatchIterator matchIterator = rule.pattern.globalMatch(text);
+  for (const auto& [pattern, format] : highlightingRules) {
+    QRegularExpressionMatchIterator matchIterator = pattern.globalMatch(text);
     while (matchIterator.hasNext()) {
       QRegularExpressionMatch match = matchIterator.next();
-      setFormat(match.capturedStart(), match.capturedLength(), rule.format);
+      setFormat(match.capturedStart(), match.capturedLength(), format);
     }
   }
 }

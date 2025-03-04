@@ -44,6 +44,16 @@ class SyncUtils {
    */
   static bool testFilePathWritablePermissions(const QString& filePath);
 
+  /**
+   * @brief 字符串生成hash值
+   * @param input 输入字符串
+   * @return 返回hash字符串
+   */
+  static QString computeXXHash(const QString& input);
+
+  static QString fastFileHash(const QString &filePath);
+  static QString fullFileHash(const QString &filePath);
+
 };
 
 #endif  // SYNCUTILS_H

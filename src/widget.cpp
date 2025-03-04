@@ -5,8 +5,11 @@
 // #include "task/FileMonitor.h"
 #include <qprocess.h>
 
+#include <QCheckBox>
+#include <QHostInfo>
 #include <QSettings>
 
+#include "init/Env.h"
 #include "task/SyncTask.h"
 #include "utils/SyncUtils.h"
 #include "utils/rule/RuleEditDialog.h"
@@ -20,17 +23,25 @@ Widget::Widget(QWidget* parent)
       ui(new Ui::Widget),
       logArea(nullptr),
       workspaceLayout(new QVBoxLayout()),
-      configFilePath("files.json"),
-      configSystemPath("etc.json") {
-  setWindowTitle("-- 文件同步管理器 -- 测试版 V1.0 24-1231 制作：LEEYANGY");
+      configFilePath(QString("%1/%2/%3")
+                         .arg(QCoreApplication::applicationDirPath())
+                         .arg("etc")
+                         .arg("files.json")),
+      configSystemPath(QString("%1/%2/%3")
+                           .arg(QCoreApplication::applicationDirPath())
+                           .arg("etc")
+                           .arg("etc.json")) {
+  setWindowTitle(QString("%1%2%3").arg("-- 文件同步工具 x",
+                                       std::to_string(sizeof(int*) * 8).data(),
+                                       " -- V1.0.3.25-0303 制作：LEEYANGY"));
+
   setWindowIcon(QIcon(":/svg/files.png"));
+  Env::instance().checkAndInit();
 
   // 在获取布局时候初始化监控进程
   monitor = new TriggerMonitor(this, this);
   monitor->startMonitoring(configFilePath);
 
-  // 创建系统托盘图标
-  // trayIcon = new QSystemTrayIcon(this);
   // 初始化 trayIcon
   trayIcon.reset(new QSystemTrayIcon(this));
   // 设置托盘图标
@@ -73,7 +84,6 @@ Widget::Widget(QWidget* parent)
   loadWorkspaceConfig();
   // 连接信号槽
   connect(this, &Widget::rulesUpdated, this, &Widget::reloadRules);
-  connect(advanceActions[0].get(), &QAction::toggled, this, &Widget::toggleAutoStart);
 }
 
 Widget::~Widget() {
@@ -149,9 +159,9 @@ void Widget::setupMenuBar() {
   });
 
   syncActions.push_back(
-      std::make_unique<QAction>(QIcon(":/svg/sync.svg"), "立即同步", this));
+      std::make_unique<QAction>(QIcon(":/svg/sync.svg"), "完整同步 -- 很慢(:", this));
   syncActions[0]->setShortcut(QKeySequence("Ctrl+Shift+S"));
-  connect(syncActions[0].get(), &QAction::triggered, this, &Widget::onSync);
+  connect(syncActions[0].get(), &QAction::triggered, this, &Widget::onFullSync);
 
   // 点击按钮时启动同步任务
   connect(syncActions[0].get(), &QAction::triggered, this,
@@ -164,23 +174,29 @@ void Widget::setupMenuBar() {
   connect(monitor, &TriggerMonitor::syncTriggered, this,
           &Widget::onTaskCompleted);
 
+  syncActions.push_back(std::make_unique<QAction>(QIcon(":/svg/increase.svg"),
+                                                  "增量同步 -- 很快:)", this));
+  syncActions[1]->setShortcut(QKeySequence("Ctrl+Shift+I"));
+  connect(syncActions[1].get(), &QAction::triggered, this,
+          &Widget::onIncreaseSync);
+
   syncActions.push_back(std::make_unique<QAction>(QIcon(":/svg/hourglass.svg"),
                                                   "触发时间", this));
-  syncActions[1]->setShortcut(QKeySequence("Ctrl+Shift+T"));
+  syncActions[2]->setShortcut(QKeySequence("Ctrl+Shift+T"));
 
-  connect(syncActions[1].get(), &QAction::triggered, this,
+  connect(syncActions[2].get(), &QAction::triggered, this,
           &Widget::onSystemInfo);
 
   syncActions.push_back(
       std::make_unique<QAction>(QIcon(":/svg/pause.svg"), "停止监控", this));
-  syncActions[2]->setShortcut(QKeySequence("Ctrl+Shift+P"));
-  connect(syncActions[2].get(), &QAction::triggered, this,
+  syncActions[3]->setShortcut(QKeySequence("Ctrl+Shift+P"));
+  connect(syncActions[3].get(), &QAction::triggered, this,
           &Widget::onStopTriggerTimeActionClicked);
 
   syncActions.push_back(
       std::make_unique<QAction>(QIcon(":/svg/start.svg"), "开始监控", this));
-  syncActions[3]->setShortcut(QKeySequence("Ctrl+Shift+R"));
-  connect(syncActions[3].get(), &QAction::triggered, this,
+  syncActions[4]->setShortcut(QKeySequence("Ctrl+Shift+R"));
+  connect(syncActions[4].get(), &QAction::triggered, this,
           &Widget::onStartTriggerTimeActionClicked);
 
   for (const auto& conf : syncActions) menus[1]->addAction(conf.get());
@@ -228,16 +244,113 @@ void Widget::setupMenuBar() {
   advanceActions.push_back(std::make_unique<QAction>(
       QIcon(":/svg/autoStartOn.svg"), tr("&开机自启"), this));
   advanceActions[0]->setShortcut(QKeySequence("Ctrl+D"));
-  advanceActions[0]->setCheckable(true);                // 设置可选状态
-  advanceActions[0]->setChecked(isAutoStartEnabled());  // 初始状态
-  // connect(advanceActions[0].get(), &QAction::triggered, this, [this] {
-  //   QProcess::startDetached("sh", QStringList() << "-c" << "echo
-  //   '开机自启'");
+  advanceActions[0]->setCheckable(true);  // 设置可选状态
+  // advanceActions[0].get()->setChecked(isAutoStartEnabled());  // 初始状态
+  // connect(advanceActions[0].get(), &QAction::, this, [this] {
+  //   this->setAutoStart(isAutoStartEnabled());
   // });
 
   // 连接信号槽
-  // connect(advanceActions[0].get(), &QAction::toggled, this,
-  //         &Widget::toggleAutoStart);
+  connect(advanceActions[0].get(), &QAction::toggled, this,
+          &Widget::toggleAutoStart);
+
+  toggleAutoStart(isAutoStartEnabled());
+
+  // TODO 文件对比，文件历史追踪，对比最近五次？
+
+  advanceActions.push_back(std::make_unique<QAction>(
+      QIcon(":/svg/history.svg"), tr("&文件历史追踪"), this));
+  advanceActions[1]->setShortcut(QKeySequence("Ctrl+Shift+H"));
+  connect(advanceActions[1].get(), &QAction::triggered, this, [this] {
+    QMessageBox::warning(this, "提示", "文件历史追踪，功能开发中！");
+  });
+  advanceActions.push_back(std::make_unique<QAction>(
+      QIcon(":/svg/put_out_fires.svg"), tr("&清理缓存"), this));
+
+  advanceActions[2]->setShortcut(QKeySequence("Ctrl+Shift+C"));
+  connect(advanceActions[2].get(), &QAction::triggered, this, [this] {
+    // 获取 logs 和 conflicts 文件夹路径
+    QString appDirPath = QCoreApplication::applicationDirPath();
+    QDir logsDir(QString("%1/%2").arg(appDirPath, "logs"));
+    QDir conflictDir(QString("%1/%2").arg(appDirPath, "conflicts"));
+    // performance.svg
+    // qDebug() << "Cleaning logs and conflicts directories...";
+
+    // 检查 conflicts 文件夹是否存在
+    if (!conflictDir.exists()) {
+      // qDebug() << "ℹ️ Conflicts directory does not exist:" <<
+      // conflictDir.path();
+      return;
+    }
+
+    // 遍历 conflicts 文件夹中的所有子文件夹
+    QStringList conflictSubDirs =
+        conflictDir.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
+    for (const QString& subDirName : conflictSubDirs) {
+      QString conflictSubDirPath = conflictDir.filePath(subDirName);
+      QString logsSubDirPath = logsDir.filePath(subDirName);
+
+      QDir conflictSubDir(conflictSubDirPath);
+      QDir logsSubDir(logsSubDirPath);
+
+      // 检查冲突子文件夹是否为空
+      QStringList conflictEntries = conflictSubDir.entryList(
+          QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot);
+      if (conflictEntries.isEmpty()) {
+        // qDebug() << "✅ Conflict subdirectory is empty, proceeding to clean
+        // up:" << conflictSubDirPath;
+
+        // 删除冲突子文件夹
+        if (conflictSubDir.removeRecursively()) {
+          // qDebug() << "✅ Successfully removed conflict subdirectory:" <<
+          // conflictSubDirPath;
+        } else {
+          qDebug() << "❌ Failed to remove conflict subdirectory:"
+                   << conflictSubDirPath;
+        }
+
+        // 删除对应的 logs 子文件夹
+        if (logsSubDir.exists()) {
+          if (logsSubDir.removeRecursively()) {
+            // qDebug() << "✅ Successfully removed logs subdirectory:" <<
+            // logsSubDirPath;
+          } else {
+            qDebug() << "❌ Failed to remove logs subdirectory:"
+                     << logsSubDirPath;
+          }
+        } else {
+          qDebug() << "ℹ️ Logs subdirectory does not exist:" << logsSubDirPath;
+        }
+      } else {
+        // qDebug() << "⚠️ Conflict subdirectory is not empty, skipping cleanup:"
+        // << conflictSubDirPath; qDebug() << "Contents in conflict
+        // subdirectory:" << conflictEntries;
+      }
+    }
+
+    // 检查 logs 和 conflicts 文件夹是否为空，如果为空则删除
+    if (logsDir.entryList(QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot)
+            .isEmpty()) {
+      if (logsDir.removeRecursively()) {
+        // qDebug() << "✅ Successfully removed empty logs directory:" <<
+        // logsDir.path();
+      } else {
+        qDebug() << "❌ Failed to remove empty logs directory:"
+                 << logsDir.path();
+      }
+    }
+
+    if (conflictDir.entryList(QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot)
+            .isEmpty()) {
+      if (conflictDir.removeRecursively()) {
+        // qDebug() << "✅ Successfully removed empty conflicts directory:" <<
+        // conflictDir.path();
+      } else {
+        qDebug() << "❌ Failed to remove empty conflicts directory:"
+                 << conflictDir.path();
+      }
+    }
+  });
 
   for (const auto& action : advanceActions) menus[3]->addAction(action.get());
 
@@ -376,26 +489,84 @@ void Widget::addFileRow() {
             }
           });
 
+  // connect(deleteButton, &QPushButton::clicked, this,
+  //         [this, rowLayout, fileInfo1, fileInfo2, fileDialogButton1,
+  //          fileDialogButton2, deleteButton] {
+  //           // 从布局中移除控件
+  //           rowLayout->removeWidget(fileDialogButton1);
+  //           rowLayout->removeWidget(fileInfo1);
+  //           rowLayout->removeWidget(fileDialogButton2);
+  //           rowLayout->removeWidget(fileInfo2);
+  //           rowLayout->removeWidget(deleteButton);
+  //
+  //           // 删除控件
+  //           fileDialogButton1->deleteLater();
+  //           fileInfo1->deleteLater();
+  //           fileDialogButton2->deleteLater();
+  //           fileInfo2->deleteLater();
+  //           deleteButton->deleteLater();
+  //
+  //           // 删除布局
+  //           workspaceLayout->removeItem(rowLayout);
+  //           rowLayout->deleteLater();
+  //           delWorkSpaceDB(
+  //               SyncUtils::computeXXHash(fileInfo2->text().split("/").last()));
+  //         });
+
   connect(deleteButton, &QPushButton::clicked, this,
           [this, rowLayout, fileInfo1, fileInfo2, fileDialogButton1,
            fileDialogButton2, deleteButton] {
-            // 从布局中移除控件
+            // 检查是否需要弹出提示
+            QSettings settings("leeyangy", "FilesSync");
+            const bool skipPrompt =
+                settings.value("skipDeletePrompt", false).toBool();
+
+            if (!skipPrompt) {
+              // 创建确认对话框
+              QMessageBox confirmBox;
+              confirmBox.setIcon(QMessageBox::Warning);
+              confirmBox.setWindowTitle(tr("确认删除"));
+              confirmBox.setText(
+                  tr("此操作将永久删除该条目，无法恢复。是否继续？"));
+
+              // 添加复选框
+              QCheckBox dontShowAgainCheckBox(tr("下次不再提示"), &confirmBox);
+              confirmBox.setCheckBox(&dontShowAgainCheckBox);
+
+              // 添加按钮
+              confirmBox.setStandardButtons(QMessageBox::Yes | QMessageBox::No);
+              confirmBox.setDefaultButton(QMessageBox::No);
+
+              // 显示对话框并获取用户选择
+              if (const int result = confirmBox.exec();
+                  result == QMessageBox::No) {
+                return;  // 用户取消操作
+              }
+
+              // 保存用户选择
+              if (dontShowAgainCheckBox.isChecked()) {
+                settings.setValue("skipDeletePrompt", true);
+              }
+            }
+
+            // 执行删除操作
             rowLayout->removeWidget(fileDialogButton1);
             rowLayout->removeWidget(fileInfo1);
             rowLayout->removeWidget(fileDialogButton2);
             rowLayout->removeWidget(fileInfo2);
             rowLayout->removeWidget(deleteButton);
 
-            // 删除控件
             fileDialogButton1->deleteLater();
             fileInfo1->deleteLater();
             fileDialogButton2->deleteLater();
             fileInfo2->deleteLater();
             deleteButton->deleteLater();
 
-            // 删除布局
             workspaceLayout->removeItem(rowLayout);
             rowLayout->deleteLater();
+
+            delWorkSpaceDB(
+                SyncUtils::computeXXHash(fileInfo2->text().split("/").last()));
           });
 
   // 添加控件到布局
@@ -611,17 +782,20 @@ void Widget::onAbout() {
   dialog.exec();
 }
 
-void Widget::onSync() const { monitor->triggerSync(configFilePath); }
+void Widget::onFullSync() const { monitor->triggerSync(configFilePath); }
+void Widget::onIncreaseSync() const { qDebug() << "onIncreaseSync"; }
 
 // TODO
 void Widget::onUpdateLog() {
-  QMessageBox::about(this, "更新日志",
-                     "开发计划--> 1.2 支持局域网文件互传\n"
-                     "当前版本-->1.0.1\n"
-                     "当前开发进度-->添加持hdfs等传输?\n"
-                     "优化文件校验逻辑\n"
-                     "1.0.1-->优化可能导致内存泄漏代码\n"
-                     "1.0-->挂载磁盘文件之间相互传输");
+  QMessageBox::about(
+      this, "更新日志",
+      "开发计划--> 1.2 支持局域网文件互传\n"
+      "当前版本-->1.0.3\n"
+      "当前开发进度-->优化代码逻辑，添加持hdfs等传输?\n"
+      "1.0.2-->"
+      "优化文件校验过程，提升软件响应速度，修复开机自启读取配置路径错误\n"
+      "1.0.1-->优化可能导致内存泄漏代码\n"
+      "1.0-->挂载磁盘文件之间相互传输");
 }
 
 // TODO
@@ -641,7 +815,8 @@ void Widget::onSystemInfo() const { monitor->showSettingsDialog(); }
  * @return QString
  */
 QString Widget::getRuleFilePath() const {
-  return QDir::current().filePath("%1/%2").arg("etc", "FileSyncRules.conf");
+  return QString("%1/%2/%3")
+      .arg(QCoreApplication::applicationDirPath(), "etc", "FileSyncRules.conf");
 }
 
 /**
@@ -649,15 +824,19 @@ QString Widget::getRuleFilePath() const {
  */
 void Widget::createDefaultRules() const {
   const QString defaultContent =
-      "[FileSync Rules v1.0.1]\n"
-      "# 排除目录\n"
+      "[FileSync Rules v1.0.3]\n"
+      "# 本机标识名称(如xxx电脑-x)\n"
+      "machine_name = " +
+      QHostInfo::localHostName() +
+      " \n\n"
+      "# 排除目录(全局共享同一规则)\n"
       "exclude_dirs = /temp/, /backup/\n\n"
-      "# 排除文件类型\n"
+      "# 排除文件类型(全局共享同一规则)\n"
       "exclude_exts = *.log, *.tmp\n\n"
       "# 同步间隔（分钟）{目前不可用}\n"
-      "sync_interval = 30\n\n"
+      "# sync_interval = 30\n\n"
       "# 最大历史版本数 {目前不可用}\n"
-      "max_history = 5";
+      "# max_history = 5";
 
   QFile file(getRuleFilePath());
   if (file.open(QIODevice::WriteOnly | QIODevice::Text)) {
@@ -671,7 +850,7 @@ void Widget::onRules() {
   const QString rulePath = getRuleFilePath();
   if (!QFile::exists(rulePath)) {
     createDefaultRules();
-    QMessageBox::information(this, tr("欢迎"),
+    QMessageBox::information(this, tr("测试功能 部分能用"),
                              tr("已创建默认规则文件：\n") + rulePath);
   }
 
@@ -681,7 +860,7 @@ void Widget::onRules() {
     QMessageBox::critical(this, tr("错误"), tr("无法读取规则文件"));
     return;
   }
-  QString content = QTextStream(&file).readAll();
+  const QString content = QTextStream(&file).readAll();
   file.close();
 
   // 显示编辑对话框
@@ -704,6 +883,10 @@ void Widget::onRules() {
 void Widget::reloadRules() {
   qDebug() << "重新加载规则配置...";
   // TODO
+  // qApp->exit(777);
+  // qApp->quit();   // 或者   aApp->closeAllWindows();
+  //
+  // QProcess::startDetached(qApp->applicationFilePath(), QStringList());
 }
 
 // 不记录日志
@@ -775,7 +958,9 @@ void Widget::logMessageHandler(QtMsgType type,
   }
 
   // **日志写入文件**
-  static QString logDir = QCoreApplication::applicationDirPath() + "/logs";
+
+  static QString logDir =
+      QString("%1/%2").arg(QCoreApplication::applicationDirPath(), "logs");
   static QString logFile = logDir + "/app.log";
 
   // **确保日志目录存在**
@@ -847,7 +1032,7 @@ void Widget::onStartTriggerTimeActionClicked() const {
 }
 
 void Widget::toggleAutoStart(const bool checked) {
-  qDebug() << "toggleAutoStart: " << checked;
+  qDebug() << "开机自启状态: " << checked;
   setAutoStart(checked);
 
   // 验证实际状态是否生效
@@ -876,7 +1061,7 @@ bool Widget::isAutoStartEnabled() const {
   return false;
 }
 
-void Widget::setAutoStart(bool enable) {
+void Widget::setAutoStart(bool enable) const {
 #ifdef Q_OS_WIN
   QSettings settings(
       "HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Run",
@@ -905,4 +1090,13 @@ void Widget::setAutoStart(bool enable) {
     QFile::remove(desktopPath);
   }
 #endif
+}
+
+void Widget::delWorkSpaceDB(const QString& dbPath) const {
+  if (QDir dbDir =
+          QString("%1/%2/%3")
+              .arg(QCoreApplication::applicationDirPath(), "db", dbPath);
+      dbDir.exists()) {
+    dbDir.removeRecursively();
+  }
 }

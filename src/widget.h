@@ -162,9 +162,15 @@ class Widget : public QMainWindow {
 
   std::atomic<int> completedTasks{0};  // 原子计数器，用于记录完成的任务数量
 
-  QAction* autoStartAction;         // 可勾选的菜单动作
-  bool isAutoStartEnabled() const;  // 检查自启状态
-  void setAutoStart(bool enable);   // 设置自启状态
+  QAction* autoStartAction;              // 可勾选的菜单动作
+  bool isAutoStartEnabled() const;       // 检查自启状态
+  void setAutoStart(bool enable) const;  // 设置自启状态
+
+  /**
+   * @brief 删除工作空间数据库
+   * @param dbName 数据库存储名称
+   */
+  void delWorkSpaceDB(const QString& dbName) const;
 
   // 平台特定实现
 #ifdef Q_OS_WIN
@@ -180,8 +186,17 @@ class Widget : public QMainWindow {
   void onSaveConfiguration() const;  // 保存配置文件
   void onExit();                     // 退出程序
   void onAbout();                    // 关于信息
-  void onSync() const;               // 立即同步
-  void onSystemInfo() const;         // 系统信息
+
+  /**
+   * @brief 完整同步
+   */
+  void onFullSync() const;
+
+  /**
+   * @brief 增量同步
+   */
+  void onIncreaseSync() const;
+  void onSystemInfo() const;  // 系统信息
   QString getRuleFilePath() const;
   void createDefaultRules() const;
   void onUpdateLog();         // 更新日志

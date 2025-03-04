@@ -1,8 +1,11 @@
 #ifndef TRIGGERMONITOR_H
 #define TRIGGERMONITOR_H
 
+#include <qqueue.h>
+
 #include <QComboBox>
 #include <QDebug>
+#include <QFileSystemWatcher>
 #include <QFormLayout>
 #include <QGroupBox>
 #include <QSpinBox>
@@ -26,6 +29,8 @@ class TriggerMonitor : public QObject {
   // 开始/停止监控
   void startMonitoring(const QString &configFilePath);
   void stopMonitoring();
+  static QList<QPair<QString, QString>> loadWorkspacesFromConfig(
+      const QString &configFilePath);
 
   // 立即触发同步任务
   void triggerSync(const QString &configFilePath);
@@ -94,6 +99,13 @@ class TriggerMonitor : public QObject {
   QHBoxLayout *weekLayout;
   QTimeEdit *timeEdit;
   QSpinBox *frequencySpin;
+
+ QFileSystemWatcher fileWatcher; // 文件系统监控器
+ QQueue<QString> syncQueue;      // 缓存队列
+ const int SYNC_QUEUE_THRESHOLD = 4; // 队列阈值
+
+ void setupFileWatcher(const QString &path); // 初始化文件监控
+ void processSyncQueue();                    // 处理缓存队列
 };
 
 #endif  // TRIGGERMONITOR_H

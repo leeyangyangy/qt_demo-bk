@@ -1,5 +1,8 @@
 #include "SyncUtils.h"
 
+#include <xxhash.h>
+
+#include <QCryptographicHash>
 #include <QDateTime>
 #include <QDir>
 #include <QFileInfo>
@@ -54,10 +57,10 @@ int SyncUtils::checkFilePathPermissions(const QString& filePath) {
 
 bool SyncUtils::testFilePathWritablePermissions(const QString& path) {
   // 获取当前日期和时间
-  QDateTime currentDateTime = QDateTime::currentDateTime();
+  const QDateTime currentDateTime = QDateTime::currentDateTime();
 
   // 将日期和时间格式化为字符串
-  QString dateTimeString =
+  const QString dateTimeString =
       currentDateTime.toString("yyyy-MM-dd_hh-mm-ss");  // 使用下划线替代冒号
 
   // 拼接字符串
@@ -83,4 +86,40 @@ bool SyncUtils::testFilePathWritablePermissions(const QString& path) {
   }
   qDebug() << "Directory already exists:" << fullPath;
   return false;
+}
+
+// QString SyncUtils::fastFileHash(const QString& filePath) {
+//   QFile file(filePath);
+//   if (!file.open(QIODevice::ReadOnly)) return "";
+//
+//   // 仅读取前1MB计算快速哈希
+//   QByteArray data = file.read(1024 * 1024);
+//   quint64 hash = XXH64(data.constData(), data.size(), 0);
+//   return QString::number(hash, 16);
+// }
+//
+// QString SyncUtils::fullFileHash(const QString& filePath) {
+//   QFile file(filePath);
+//   if (!file.open(QIODevice::ReadOnly)) return "";
+//
+//   // 完整文件哈希（仍保留SHA-1用于关键校验）
+//   QCryptographicHash hash(QCryptographicHash::Sha1);
+//   hash.addData(&file);
+//   const QByteArray result = hash.result();
+//
+//   // 二次哈希提升性能
+//   return QString::number(XXH64(result.constData(), result.size(), 0), 16);
+// }
+
+QString SyncUtils::computeXXHash(const QString& input) {
+  // 将 QString 转换为 QByteArray
+  const QByteArray inputData = input.toUtf8();
+
+  // 使用 xxHash 计算哈希值（64 位版本）
+  XXH64_hash_t hashValue = XXH64(inputData.constData(), inputData.size(), 0);
+
+  // 将哈希值转换为十六进制字符串
+  QString hashString = QString::number(hashValue, 16).toUpper();
+
+  return hashString;
 }

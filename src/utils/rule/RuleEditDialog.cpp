@@ -3,7 +3,6 @@
 #include <QFileDialog>
 #include <QMessageBox>
 #include <QPushButton>
-#include <QStandardPaths>
 #include <QTextStream>
 #include <QVBoxLayout>
 
@@ -11,10 +10,10 @@
 
 RuleEditDialog::RuleEditDialog(const QString& content, QWidget* parent)
     : QDialog(parent) {
-  setWindowTitle(tr("规则管理 -- 测试功能"));
+  setWindowTitle(tr("测试功能 -- 未对关键内容校验，请不要修改该信息！！！"));
   setMinimumSize(800, 600);
 
-  QVBoxLayout* layout = new QVBoxLayout(this);
+  layout = new QVBoxLayout(this);
 
   // 文本编辑框
   textEdit = new QTextEdit(this);
@@ -23,13 +22,14 @@ RuleEditDialog::RuleEditDialog(const QString& content, QWidget* parent)
   highlighter = new RuleHighlighter(textEdit->document());
   layout->addWidget(textEdit);
 
-  // 按钮区域
+  // 按钮区域 TODO 确认后保存配置信息
   buttonBox = new QDialogButtonBox(
       QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
-  QPushButton* importBtn = new QPushButton(tr("导入"), this);
-  QPushButton* exportBtn = new QPushButton(tr("导出"), this);
-  buttonBox->addButton(importBtn, QDialogButtonBox::ActionRole);
-  buttonBox->addButton(exportBtn, QDialogButtonBox::ActionRole);
+
+  buttons.push_back(std::make_unique<QPushButton>(tr("导入"), this));
+  buttons.push_back(std::make_unique<QPushButton>(tr("导出"), this));
+  buttonBox->addButton(buttons[0].get(), QDialogButtonBox::ActionRole);
+  buttonBox->addButton(buttons[1].get(), QDialogButtonBox::ActionRole);
 
   layout->addWidget(buttonBox);
 
@@ -37,8 +37,8 @@ RuleEditDialog::RuleEditDialog(const QString& content, QWidget* parent)
   connect(buttonBox, &QDialogButtonBox::accepted, this,
           &RuleEditDialog::validateAndAccept);
   connect(buttonBox, &QDialogButtonBox::rejected, this, &QDialog::reject);
-  connect(importBtn, &QPushButton::clicked, this, &RuleEditDialog::importRules);
-  connect(exportBtn, &QPushButton::clicked, this, &RuleEditDialog::exportRules);
+  connect(buttons[0].get(), &QPushButton::clicked, this, &RuleEditDialog::importRules);
+  connect(buttons[1].get(), &QPushButton::clicked, this, &RuleEditDialog::exportRules);
 }
 
 QString RuleEditDialog::getEditedContent() const {
@@ -78,7 +78,7 @@ void RuleEditDialog::validateAndAccept() {
 }
 
 void RuleEditDialog::importRules() {
-  QString path = QFileDialog::getOpenFileName(
+  const QString path = QFileDialog::getOpenFileName(
       this, tr("导入规则"),
       QDir::current().filePath("etc"),
       tr("配置文件 (*.conf);;所有文件 (*.*)"));

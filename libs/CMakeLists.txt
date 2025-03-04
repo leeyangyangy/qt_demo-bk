@@ -1,5 +1,5 @@
 add_subdirectory(QXlsx/QXlsx)
-#add_subdirectory(xxHash/cmake_unofficial)
+add_subdirectory(xxHash/cmake_unofficial)
 # 添加 LevelDB 子目录并配置选项
 option(LEVELDB_BUILD_TESTS "Build LevelDB tests" OFF)
 option(LEVELDB_BUILD_BENCHMARKS "Build LevelDB benchmarks" OFF)

@@ -4,6 +4,8 @@
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QTextEdit>
+#include <QVBoxLayout>
+#include <memory>
 
 class RuleHighlighter;
 
@@ -19,8 +21,10 @@ class RuleEditDialog : public QDialog {
   void exportRules();
 
  private:
+  QVBoxLayout* layout;
   QTextEdit* textEdit;
   QDialogButtonBox* buttonBox;
   RuleHighlighter* highlighter;
+  std::vector<std::unique_ptr<QPushButton>> buttons;
 };
 #endif  // RULEEDITDIALOG_H

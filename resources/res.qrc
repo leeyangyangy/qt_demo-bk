@@ -24,6 +24,10 @@
         <file>svg/start.svg</file>
         <file>svg/autoStartOn.svg</file>
         <file>svg/autoStartOff.svg</file>
+        <file>svg/put_out_fires.svg</file>
+        <file>svg/performance.svg</file>
+        <file>svg/history.svg</file>
+        <file>svg/increase.svg</file>
     </qresource>
 
     <!--png-->

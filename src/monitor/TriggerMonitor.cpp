@@ -1,17 +1,17 @@
 #include "TriggerMonitor.h"
 
 #include <QCheckBox>
+#include <QDialog>
 #include <QDialogButtonBox>
 #include <QDir>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
-#include <QDialog>
 
 #include "../task/SyncTask.h"
 #include "../utils/SyncUtils.h"
 #include "../widget.h"
-
+// TODO 加载配置和保存配置内容可以优化，应该从其它地方获取加载进来的，先这样写死吧
 // 定义配置文件名
 const QString TriggerMonitor::CONFIG_FILE = "trigger_config.json";
 // 最小线程数
@@ -19,7 +19,9 @@ const int TriggerMonitor::MIN_THREADS = 1;
 
 TriggerMonitor::TriggerMonitor(QObject *parent, Widget *widget)
     : QObject(parent),
-      configFilePath("files.json"),
+      configFilePath(QString("%1/%2/%3")
+                         .arg(QCoreApplication::applicationDirPath(), "etc",
+                              "files.json")),
       m_triggerMinutes(60),
       m_maxThreads(QThread::idealThreadCount()),
       m_isTaskRunning(false),
@@ -30,6 +32,11 @@ TriggerMonitor::TriggerMonitor(QObject *parent, Widget *widget)
   connect(&pollingTimer, &QTimer::timeout, this,
           &TriggerMonitor::checkSyncTime);
   loadConfig();
+
+  for (const auto& row : loadWorkspacesFromConfig(configFilePath)) {
+    setupFileWatcher(row.first);
+  }
+  // QThreadPool::globalInstance()->setMaxThreadCount(m_maxThreads);
 }
 
 void TriggerMonitor::setWidget(Widget *widget) { m_widget = widget; }
@@ -38,7 +45,8 @@ TriggerMonitor::~TriggerMonitor() { stopMonitoring(); }
 
 void TriggerMonitor::loadConfig() {
   const QString configPath =
-      QDir::current().filePath(QString("%1").arg(CONFIG_FILE));
+      QString("%1/%2/%3")
+          .arg(QCoreApplication::applicationDirPath(), "etc", CONFIG_FILE);
   QFile configFile(configPath);
 
   if (!configFile.exists()) {
@@ -94,10 +102,10 @@ void TriggerMonitor::saveConfig() const {
   config["lastSyncTime"] = m_lastSyncTime.toString(Qt::ISODate);
 
   const auto configPath =
-      QDir::current().filePath(QString("%1/%2").arg("etc").arg(CONFIG_FILE));
-  QFile configFile(configPath);
-  if (configFile.open(QIODevice::WriteOnly)) {
-    QJsonDocument doc(config);
+      QString("%1/%2/%3")
+          .arg(QCoreApplication::applicationDirPath(), "etc", CONFIG_FILE);
+  if (QFile configFile(configPath); configFile.open(QIODevice::WriteOnly)) {
+    const QJsonDocument doc(config);
     configFile.write(doc.toJson());
     configFile.close();
   }
@@ -140,15 +148,13 @@ void TriggerMonitor::showSettingsDialog() {
   weekDaysGroup = new QGroupBox("每周触发日(可选)", &dialog);
   weekLayout = new QHBoxLayout(weekDaysGroup);
   // 定义周一到周日的复选框和对应的标签
-  QCheckBox *weekCheckBoxes[7] = {
-    new QCheckBox("周一", weekDaysGroup),
-    new QCheckBox("周二", weekDaysGroup),
-    new QCheckBox("周三", weekDaysGroup),
-    new QCheckBox("周四", weekDaysGroup),
-    new QCheckBox("周五", weekDaysGroup),
-    new QCheckBox("周六", weekDaysGroup),
-    new QCheckBox("周日", weekDaysGroup)
-};
+  QCheckBox *weekCheckBoxes[7] = {new QCheckBox("周一", weekDaysGroup),
+                                  new QCheckBox("周二", weekDaysGroup),
+                                  new QCheckBox("周三", weekDaysGroup),
+                                  new QCheckBox("周四", weekDaysGroup),
+                                  new QCheckBox("周五", weekDaysGroup),
+                                  new QCheckBox("周六", weekDaysGroup),
+                                  new QCheckBox("周日", weekDaysGroup)};
 
   // 添加复选框到布局中
   for (int i = 0; i < 7; ++i) {
@@ -161,7 +167,8 @@ void TriggerMonitor::showSettingsDialog() {
     if (m_triggerWeekDays.isEmpty()) {
       weekCheckBoxes[i]->setChecked(i < 5);  // 默认选中周一至周五
     } else {
-      weekCheckBoxes[i]->setChecked(m_triggerWeekDays.contains(static_cast<Qt::DayOfWeek>(i + 1)));
+      weekCheckBoxes[i]->setChecked(
+          m_triggerWeekDays.contains(static_cast<Qt::DayOfWeek>(i + 1)));
     }
   }
 
@@ -174,8 +181,10 @@ void TriggerMonitor::showSettingsDialog() {
       QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
   layout->addRow(buttons.get());  // 获取原始指针传给布局
 
-  connect(buttons.get(), &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
-  connect(buttons.get(), &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+  connect(buttons.get(), &QDialogButtonBox::accepted, &dialog,
+          &QDialog::accept);
+  connect(buttons.get(), &QDialogButtonBox::rejected, &dialog,
+          &QDialog::reject);
 
   if (dialog.exec() == QDialog::Accepted) {
     // 更新基本设置
@@ -227,6 +236,56 @@ void TriggerMonitor::stopMonitoring() {
   qDebug() << "轮询监控已停止";
 }
 
+QList<QPair<QString, QString>> TriggerMonitor::loadWorkspacesFromConfig(const QString &configFilePath) {
+  QList<QPair<QString, QString>> workspaces;
+
+  QFile configFile(configFilePath);
+  if (!configFile.open(QIODevice::ReadOnly)) {
+    qWarning() << "无法打开配置文件，请检查路径：" << configFilePath;
+    return workspaces;
+  }
+
+  const QByteArray data = configFile.readAll();
+  configFile.close();
+
+  const QJsonDocument doc = QJsonDocument::fromJson(data);
+  if (!doc.isObject()) {
+    qWarning() << "配置文件格式错误，请检查：" << configFilePath;
+    return workspaces;
+  }
+
+  QJsonArray rows = doc.object().value("workspace").toArray();
+  if (rows.isEmpty()) {
+    qWarning() << "配置文件中没有工作目录，无法进行同步：" << configFilePath;
+    return workspaces;
+  }
+
+  for (const QJsonValue &value : rows) {
+    QJsonObject row = value.toObject();
+    QString file1 = row.value("file1").toString();
+    QString file2 = row.value("file2").toString();
+
+    if (file1.isEmpty() || file2.isEmpty()) {
+      qWarning() << "配置文件中的文件夹路径为空，跳过该任务：" << file1 << file2;
+      continue;
+    }
+
+    if (SyncUtils::checkDocCompare(file1, file2)) {
+      qWarning() << "监听路径和目标路径相同，跳过该任务：" << file1 << file2;
+      continue;
+    }
+
+    if (!SyncUtils::checkFileIsDir(file1, file2)) {
+      qWarning() << "监听路径或目标路径不是文件夹，跳过该任务：" << file1 << file2;
+      continue;
+    }
+
+    workspaces.append(qMakePair(file1, file2));
+  }
+
+  return workspaces;
+}
+
 void TriggerMonitor::triggerSync(const QString &configFilePath) {
   if (m_isTaskRunning) {
     qDebug()
@@ -234,26 +293,11 @@ void TriggerMonitor::triggerSync(const QString &configFilePath) {
     return;
   }
 
-  QFile configFile(configFilePath);
-  if (!configFile.open(QIODevice::ReadOnly)) {
-    qWarning()
-        << "TriggerMonitor::startMonitoring():无法打开配置文件，请检查并修改";
-    return;
-  }
-
-  QByteArray data = configFile.readAll();
-  configFile.close();
-
-  QJsonDocument doc = QJsonDocument::fromJson(data);
-  if (!doc.isObject()) {
-    qWarning() << "TriggerMonitor::startMonitoring():配置文件格式错误，请检查";
-    return;
-  }
-
-  QJsonArray rows = doc.object().value("workspace").toArray();
+  // 从配置文件中加载工作目录
+  QList<QPair<QString, QString>> rows = loadWorkspacesFromConfig(configFilePath);
   if (rows.isEmpty()) {
-    qWarning() << "TriggerMonitor::startMonitoring():"
-                  "配置文件中没有工作目录，无法进行同步";
+    qWarning() << "没有有效的同步任务";
+    m_isTaskRunning = false;
     return;
   }
 
@@ -269,72 +313,28 @@ void TriggerMonitor::triggerSync(const QString &configFilePath) {
 
   int totalTasks = rows.size();
 
-  for (const QJsonValue &value : rows) {
-    QJsonObject row = value.toObject();
-    QString file1 = row.value("file1").toString();
-    QString file2 = row.value("file2").toString();
-
-    if (file1.isEmpty() || file2.isEmpty()) {
-      qWarning()
-          << "TriggerMonitor::startMonitoring():文件夹路径为空，跳过该任务";
-      continue;
-    }
-
-    if (SyncUtils::checkDocCompare(file1, file2)) {
-      qWarning() << "TriggerMonitor::startMonitoring():"
-                    "监听路径和目标路径相同，跳过该任务";
-      continue;
-    }
-
-    // 无法检查 smb 文件权限
-    // int permission = SyncUtils::checkFilePathPermissions(file2);
-    //
-    // // 直接判断是否有读写权限
-    // if (permission == 3) {
-    //   qDebug() << "文件具有读写权限";
-    // } else if (permission == 1) {
-    //   qDebug() << "文件只有读权限";
-    //   return;
-    // } else if (permission == 2) {
-    //   qDebug() << "文件只有写权限";
-    //   return;
-    // } else if (permission == 0) {
-    //   qDebug() << "文件无读写权限";
-    //   return;
-    // } else {
-    //   qDebug() << "文件不存在";
-    //   return;
-    // }
-
-    if (!SyncUtils::checkFileIsDir(file1, file2)) {
-      qWarning() << QString("监听路径 %1 或目标路径 %2 不是文件夹，跳过该任务")
-                        .arg(file1, file2);
-      continue;
-    }
+  for (const auto &row : rows) {
+    QString file1 = row.first;
+    QString file2 = row.second;
 
     ++taskCount;
     const auto task = new SyncTask(file1, file2);
 
     connect(task, &SyncTask::taskCompleted, this,
-            [this, taskCount, totalTasks](const QString &source,
-                                          const QString &target) {
-              this->completedTasks.fetch_add(
-                  1, std::memory_order_relaxed);  // **原子增加**
+            [this, taskCount, totalTasks](const QString &, const QString &) {
+                this->completedTasks.fetch_add(1, std::memory_order_relaxed);
 
-              // 计算进度百分比
-              int progress =
-                  static_cast<double>(completedTasks) / totalTasks * 100;
-              // qInfo() << "同步完成:" << source << " -> " << target
-              //         << "taskCount:" << taskCount
-              //         << "completedTasks:" << completedTasks
-              //         << "rows.size():" << totalTasks << "progress:" <<
-              //         progress;
-              if (m_widget) std::this_thread::sleep_for(std::chrono::milliseconds(100));  // 睡眠100ms
-              m_widget->updateProgressBar(progress);
-              if (totalTasks == taskCount) {
-                m_isTaskRunning = false;
-                emit allTasksCompleted();
-              }
+                // 计算进度百分比
+                const int progress = static_cast<double>(completedTasks) / totalTasks * 100;
+                if (m_widget) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(100));  // 睡眠100ms
+                    m_widget->updateProgressBar(progress);
+                }
+
+                if (totalTasks == taskCount) {
+                    m_isTaskRunning = false;
+                    emit allTasksCompleted();
+                }
             });
 
     QThreadPool::globalInstance()->start(task);
@@ -390,5 +390,56 @@ void TriggerMonitor::restartTimer() {
 void TriggerMonitor::allTasksCompleted() const {
   if (m_widget) {
     m_widget->setSyncActionEnabled(true);  // 任务完成后启用 syncAction
+  }
+}
+
+/**
+ * @brief 初始化监听文件
+ * 设计思路：
+ *   1. 使用
+ * @param path
+ */
+void TriggerMonitor::setupFileWatcher(const QString &path) {
+  if (!fileWatcher.addPath(path)) {
+    qWarning() << "Failed to add path to file watcher:" << path;
+    return;
+  }
+
+  connect(&fileWatcher, &QFileSystemWatcher::fileChanged, this, [this](const QString &filePath) {
+      qDebug() << "File changed:" << filePath;
+      syncQueue.enqueue(filePath);
+
+      // 如果队列达到阈值，触发同步
+      if (syncQueue.size() >= SYNC_QUEUE_THRESHOLD) {
+          processSyncQueue();
+      }
+  });
+
+  connect(&fileWatcher, &QFileSystemWatcher::directoryChanged, this, [this](const QString &dirPath) {
+      qDebug() << "Directory changed:" << dirPath;
+
+      // 扫描目录变化，获取新增或修改的文件
+      const QDir dir(dirPath);
+      for (const QFileInfo &fileInfo : dir.entryInfoList(QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot)) {
+          syncQueue.enqueue(fileInfo.filePath());
+      }
+
+      // 如果队列达到阈值，触发同步
+      if (syncQueue.size() >= SYNC_QUEUE_THRESHOLD) {
+          processSyncQueue();
+      }
+  });
+}
+
+void TriggerMonitor::processSyncQueue() {
+  // TODO: 增量逻辑
+  qDebug() << "Processing sync queue with" << syncQueue.size() << "items...";
+
+  while (!syncQueue.isEmpty()) {
+    QString filePath = syncQueue.dequeue();
+    qDebug() << "Syncing file:" << filePath;
+
+    // 调用同步逻辑（可以复用现有的 SyncTask）
+    // 示例：triggerSyncForFile(filePath);
   }
 }

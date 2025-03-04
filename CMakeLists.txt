@@ -53,6 +53,7 @@ message(STATUS "CMAKE_BUILD_TYPE: ${CMAKE_BUILD_TYPE}")
 # 添加测试支持
 enable_testing()
 add_subdirectory(test)
+add_subdirectory(src/utils/db)
 
 # 覆盖率编译选项（仅限 Debug 模式）
 if (CMAKE_BUILD_TYPE STREQUAL "Debug")

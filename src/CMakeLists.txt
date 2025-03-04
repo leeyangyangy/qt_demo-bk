@@ -12,24 +12,32 @@ add_executable(${PROJECT_NAME}
         widget.cpp
         monitor/TriggerMonitor.cpp
         utils/regex/re.c
-        task/FileMonitor.cpp
         task/SyncTask.cpp
         init/Env.cpp
         utils/SyncUtils.cpp
         utils/rule/RuleHighlighter.cpp
         utils/rule/RuleEditDialog.cpp
+        utils/rule/RulesParser.cpp
+        utils/db/LevelDBWrapper.cpp
 )
+
+# 定义 xxHash 的根目录
+set(XXHASH_ROOT "${CMAKE_SOURCE_DIR}/libs/xxHash")
+set(XXHASH_BUILD_DIR "${XXHASH_ROOT}/cmake_unoffical/build")
+message(STATUS "XXHash build dir: ${XXHASH_BUILD_DIR}")
 
 # add QXlsx、xxHash libs
 target_include_directories(${PROJECT_NAME}
         PRIVATE
         ${CMAKE_SOURCE_DIR}/include
         ${CMAKE_SOURCE_DIR}/libs/QXlsx/QXlsx/header
+        ${CMAKE_SOURCE_DIR}/libs/leveldb/include
+        ${CMAKE_SOURCE_DIR}/libs/xxHash
 )
 
 # 链接 Qt 库
-target_link_libraries(${PROJECT_NAME} Qt5::Core Qt5::Sql Qt5::Gui Qt5::Widgets Qt5::Svg Qt5::Network Qt5::Concurrent QXlsx leveldb)
-
+target_link_libraries(${PROJECT_NAME} Qt5::Core Qt5::Sql Qt5::Gui Qt5::Widgets Qt5::Svg Qt5::Network Qt5::Concurrent QXlsx leveldb xxHash::xxhash)
+message(STATUS "Linking with: ${XXHASH_BUILD_DIR}/libxxhash.dll.a")
 set(MINGW_DLLS
         "${MINGW_BIN_PATH}/${LIBGCC_DLL}"
         "${MINGW_BIN_PATH}/libstdc++-6.dll"

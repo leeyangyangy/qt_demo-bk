@@ -5,6 +5,7 @@
 #include <QDateTime>
 #include <QDebug>
 #include <QDir>
+#include <QDirIterator>
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonObject>
@@ -15,29 +16,80 @@
 #include "../utils/SyncUtils.h"
 #include "xlsxdocument.h"
 
-// 定义常量（可根据需要修改）
-const QString SyncTask::VERSION_FILE = "version_records.txt";
+// LevelDB 头文件
+#include <thread>
+
+#include "leveldb/db.h"
+#include "leveldb/write_batch.h"
+#include "xxhash.h"
+
+// 定义常量
+const QString SyncTask::VERSION_FILE = "version_records";  // 用作数据库标识
 const QString SyncTask::LOG_DIR = "logs";
 const QString SyncTask::CONFLICT_DIR = "conflicts";
-
+/**
+ * @brief
+ * @param source 源目录
+ * @param target 目标目录
+ * @param parent 父对象
+ * @TODO
+ *        优化目标，
+ *        1.
+ * 减少配置项的重复io读写，应该从env类中，在widget中初始化时候就读入内存，
+ *        2. 同步时候为什么没有得到预期结果？找出问题所在
+ *        3. 数据库操作，应该及时写入，而不是等待线程结束后才写入
+ *        4.
+ * 设置缓存门槛，防止堆积大量数据，导致内存溢出问题，同时防止在低配置电脑上出现不可预期问题
+ */
 SyncTask::SyncTask(const QString &source, const QString &target,
                    QObject *parent)
-    : QObject(parent), sourcePath(source), targetPath(target) {
+    : QObject(parent),
+      sourcePath(source),
+      targetPath(target),
+      versionDB(nullptr) {
   // 使用当前时间生成任务时间戳
   taskTimestamp = QDateTime::currentDateTime().toString("yyyyMMdd_HHmmss");
+
+  // 初始化 RulesParser，从可执行程序目录下 etc/FileSyncRules.conf 加载规则
+  const QString configPath =
+      QCoreApplication::applicationDirPath() + "/etc/FileSyncRules.conf";
+  rulesParser = new RulesParser(configPath);
+
+  // 初始化 LevelDB 数据库，存储在可执行程序目录下的 db 文件夹中
+  const QString dbDir =
+      QString("%1/%2").arg(QCoreApplication::applicationDirPath(), "db");
+  ensureDirectoryExists(dbDir);
+  // const QString dbPath = QDir(dbDir).filePath(VERSION_FILE);
+
+  const QString dbPath = QDir(dbDir).filePath(SyncUtils::computeXXHash(target.split("/").last()));
+  leveldb::Options options;
+  options.create_if_missing = true;
+  const leveldb::Status status =
+      leveldb::DB::Open(options, dbPath.toStdString(), &versionDB);
+  if (!status.ok()) {
+    qWarning() << "cant load or create LevelDB :"
+               << QString::fromStdString(status.ToString());
+    versionDB = nullptr;
+  }
+}
+
+SyncTask::~SyncTask() {
+  delete rulesParser;
+  delete versionDB;
 }
 
 void SyncTask::run() {
-  qDebug() << "🚀 Starting synchronization task...";
-  if (SyncUtils::testFilePathWritablePermissions(targetPath) == false) {
+  qDebug() << "🚀 Starting" << sourcePath.split("/").last()
+           << " synchronization task...";
+  if (!SyncUtils::testFilePathWritablePermissions(targetPath)) {
     qDebug() << "🚫 Target {" << targetPath
              << "} is not writable! synchronization task aborted.";
-    emit taskCompleted(sourcePath, targetPath);
-    return;
+    // emit taskCompleted(sourcePath, targetPath);
+    // return;
   }
-  // 确保目标目录存在（版本记录文件也存储在目标目录下）
+  // 确保目标目录存在（版本记录存储在 LevelDB 中，与目标目录无关）
   ensureDirectoryExists(targetPath);
-  // 备份目录和日志目录均采用程序运行目录（不依赖于目标目录）
+  // 备份目录和日志目录均采用程序运行目录
   ensureDirectoryExists(getConflictDirPath());
   ensureDirectoryExists(getLogDirPath());
 
@@ -48,19 +100,22 @@ void SyncTask::run() {
   saveTaskLog();
   generateConflictReport();
 
-  qDebug() << "✅ Task completed successfully";
+  qDebug() << "✅ Task" << sourcePath.split("/").last()
+           << "completed successfully";
   emit taskCompleted(sourcePath, targetPath);
+  // 清理目录
+  // autoCleanWorkingDir(taskTimestamp, LOG_DIR, CONFLICT_DIR);
 }
 
 void SyncTask::syncDirectory(const QString &source, const QString &target) {
-  // 版本记录文件位于目标目录中
-  const QString recordPath = QDir(target).filePath(VERSION_FILE);
-  QMap<QString, QString> oldRecords = readVersionRecords(recordPath);
+  // 从 LevelDB 中读取旧版本记录
+  QMap<QString, QString> oldRecords = readVersionRecords(QString());
   QMap<QString, QString> newRecords;
 
   processDirectory(source, "", source, target, oldRecords, newRecords);
 
-  writeVersionRecords(recordPath, newRecords);
+  // 将新版本记录写入 LevelDB
+  writeVersionRecords(QString(), newRecords);
 }
 
 void SyncTask::processDirectory(const QString &basePath,
@@ -74,7 +129,7 @@ void SyncTask::processDirectory(const QString &basePath,
     return;
   }
 
-  QDir currentDir(QDir(basePath).filePath(relativePath));
+  const QDir currentDir(QDir(basePath).filePath(relativePath));
   QFileInfoList entries =
       currentDir.entryInfoList(QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot);
   foreach (const QFileInfo &fileInfo, entries) {
@@ -82,11 +137,12 @@ void SyncTask::processDirectory(const QString &basePath,
                                   ? fileInfo.fileName()
                                   : relativePath + "/" + fileInfo.fileName();
 
-    // 如果目标版本记录、日志或冲突目录属于同步内容，则跳过
+    // 如果目标版本记录、日志、冲突目录或RulesParser属于同步内容，则跳过
     if (newRelativePath == VERSION_FILE ||
         newRelativePath.startsWith(LOG_DIR) ||
-        newRelativePath.startsWith(CONFLICT_DIR)) {
-      qDebug() << "Skipping reserved path:" << newRelativePath;
+        newRelativePath.startsWith(CONFLICT_DIR) ||
+        shouldExclude(newRelativePath)) {
+      // qDebug() << "Skipping reserved path:" << newRelativePath;
       continue;
     }
 
@@ -125,13 +181,41 @@ QString SyncTask::calculateFileHash(const QString &filePath) {
              << file.errorString();
     return "";
   }
-  QCryptographicHash hash(QCryptographicHash::Md5);
-  if (hash.addData(&file)) {
+
+  // 创建 xxHash 状态，使用种子 0
+  XXH64_state_t *state = XXH64_createState();
+  if (state == nullptr) {
+    qDebug() << "Failed to create xxHash state";
     file.close();
-    return hash.result().toHex();
+    return "";
   }
+  if (XXH64_reset(state, 0) != XXH_OK) {
+    qDebug() << "Failed to reset xxHash state";
+    XXH64_freeState(state);
+    file.close();
+    return "";
+  }
+
+  // 采用 8KB 缓冲区分块读取文件数据
+  constexpr qint64 bufferSize = 8192;
+  char buffer[bufferSize];
+  qint64 bytesRead = 0;
+  while ((bytesRead = file.read(buffer, bufferSize)) > 0) {
+    if (XXH64_update(state, buffer, static_cast<size_t>(bytesRead)) != XXH_OK) {
+      qDebug() << "xxHash update failed";
+      XXH64_freeState(state);
+      file.close();
+      return "";
+    }
+  }
+  const unsigned long long hashValue = XXH64_digest(state);
+  XXH64_freeState(state);
   file.close();
-  return "";
+
+  // 转换为十六进制字符串（不保证固定宽度，如需要可自行填充0）
+  QString hashHex = QString::number(hashValue, 16);
+  // qDebug () << "Hash of" << filePath << "is" << hashHex;
+  return hashHex;
 }
 
 bool SyncTask::copyFileWithLog(const QString &source, const QString &target) {
@@ -153,10 +237,12 @@ bool SyncTask::removeFileWithLog(const QString &path) {
 
 void SyncTask::handleConflict(const QString &targetFile,
                               const QString &relativePath) {
-  // 备份目标文件的目录固定为：程序运行目录/conflicts/<任务时间戳>/<文件名>/
-  QString fileName = QFileInfo(targetFile).fileName();
-  QString conflictDir = QDir::current().filePath(
-      QString("%1/%2/%3").arg(CONFLICT_DIR).arg(taskTimestamp).arg(fileName));
+  // 备份目标文件的目录：程序运行目录/conflicts/<任务时间戳>/<文件名>/
+  const QString fileName = QFileInfo(targetFile).fileName();
+  const QString conflictDir = QString("%1/%2/%3/%4")
+                            .arg(QCoreApplication::applicationDirPath(),
+                                 CONFLICT_DIR, taskTimestamp, fileName);
+  qDebug() << "conflictDir :" << conflictDir;
   ensureDirectoryExists(conflictDir);
 
   // 备份文件路径：冲突目录下原文件名
@@ -167,10 +253,10 @@ void SyncTask::handleConflict(const QString &targetFile,
 
   if (backupSuccess) {
     // 创建 MD5 标记文件：文件名.md5
-    QString md5FilePath = QDir(conflictDir).filePath(fileName + ".md5");
-    QString hashValue = calculateFileHash(targetFile);
+    const QString hashValue = calculateFileHash(targetFile);
+    const QString md5FilePath = QDir(conflictDir).filePath(hashValue);
     QFile md5File(md5FilePath);
-    bool md5Success = md5File.open(QIODevice::WriteOnly);
+    const bool md5Success = md5File.open(QIODevice::WriteOnly);
     if (md5Success) {
       QTextStream out(&md5File);
       out << hashValue;
@@ -185,45 +271,44 @@ void SyncTask::handleConflict(const QString &targetFile,
   entry.filename = fileName;
   entry.sourcePath = QDir(sourcePath).filePath(relativePath);
   entry.targetPath = targetFile;
-  entry.oldHash = calculateFileHash(targetFile);        // 旧版本 hash
-  entry.newHash = calculateFileHash(entry.sourcePath);  // 新源文件 hash
+  entry.oldHash = calculateFileHash(targetFile);
+  entry.newHash = calculateFileHash(entry.sourcePath);
   entry.conflictTime = QDateTime::currentDateTime();
   conflictEntries.append(entry);
 }
 
-QMap<QString, QString> SyncTask::readVersionRecords(const QString &recordPath) {
+// TODO 读写优化
+QMap<QString, QString> SyncTask::readVersionRecords(
+    const QString & /*recordPath*/) const {
   QMap<QString, QString> records;
-  QFile file(recordPath);
-  if (file.open(QIODevice::ReadOnly)) {
-    QTextStream in(&file);
-    while (!in.atEnd()) {
-      QString line = in.readLine().trimmed();
-      QStringList parts = line.split("|");
-      if (parts.size() == 2) {
-        records[parts[0]] = parts[1];
-      }
-    }
-    file.close();
-  } else {
-    logOperation("READ_RECORD", recordPath, "", false, file.errorString());
+  if (!versionDB) return records;
+
+  leveldb::Iterator *it = versionDB->NewIterator(leveldb::ReadOptions());
+  for (it->SeekToFirst(); it->Valid(); it->Next()) {
+    QString key = QString::fromStdString(it->key().ToString());
+    QString value = QString::fromStdString(it->value().ToString());
+    records[key] = value;
   }
+  delete it;
   return records;
 }
 
-void SyncTask::writeVersionRecords(const QString &recordPath,
+// TODO 读写优化
+void SyncTask::writeVersionRecords(const QString & /*recordPath*/,
                                    const QMap<QString, QString> &records) {
-  QFile file(recordPath);
-  if (file.open(QIODevice::WriteOnly)) {
-    QTextStream out(&file);
-    QMapIterator<QString, QString> it(records);
-    while (it.hasNext()) {
-      it.next();
-      out << it.key() << "|" << it.value() << "\n";
-    }
-    file.close();
-    logOperation("WRITE_RECORD", "", recordPath, true, "");
+  if (!versionDB) return;
+
+  leveldb::WriteBatch batch;
+  QMapIterator<QString, QString> it(records);
+  while (it.hasNext()) {
+    it.next();
+    batch.Put(it.key().toStdString(), it.value().toStdString());
+  }
+  leveldb::Status s = versionDB->Write(leveldb::WriteOptions(), &batch);
+  if (!s.ok()) {
+    qWarning() << "write LevelDB fail:" << QString::fromStdString(s.ToString());
   } else {
-    logOperation("WRITE_RECORD", "", recordPath, false, file.errorString());
+    logOperation("WRITE_RECORD", "", "LevelDB", true, "");
   }
 }
 
@@ -231,7 +316,7 @@ void SyncTask::saveTaskLog() {
   // 切换到主线程执行 Excel 生成操作
   QMetaObject::invokeMethod(
       qApp,
-      [this]() {
+      [this] {
         QXlsx::Document xlsx;
         QXlsx::Format headerFormat;
         headerFormat.setFontBold(true);
@@ -244,21 +329,23 @@ void SyncTask::saveTaskLog() {
           xlsx.write(1, col + 1, headers[col], headerFormat);
         }
         int row = 2;
-        for (const OperationLog &log : qAsConst(operationLogs)) {
-          xlsx.write(row, 1, log.timestamp.toString("yyyy-MM-dd HH:mm:ss.zzz"));
-          xlsx.write(row, 2, log.type);
-          xlsx.write(row, 3, log.sourcePath);
-          xlsx.write(row, 4, log.targetPath);
-          xlsx.write(row, 5, log.status);
-          xlsx.write(row, 6, log.errorMessage);
+        for (const auto &[timestamp, type, sourcePath, targetPath, status,
+                          errorMessage] : qAsConst(operationLogs)) {
+          xlsx.write(row, 1, timestamp.toString("yyyy-MM-dd HH:mm:ss.zzz"));
+          xlsx.write(row, 2, type);
+          xlsx.write(row, 3, sourcePath);
+          xlsx.write(row, 4, targetPath);
+          xlsx.write(row, 5, status);
+          xlsx.write(row, 6, errorMessage);
           ++row;
         }
         for (int col = 1; col <= headers.size(); ++col) {
-          xlsx.setColumnWidth(col, 25);
+          xlsx.setColumnWidth(col, 50);
         }
-        QString logPath = QDir(getLogDirPath()).filePath("operation_log.xlsx");
+        QString logPath =
+          QString("%1/%2").arg(getLogDirPath(), "operation_log.xlsx");
         if (xlsx.saveAs(logPath)) {
-          qDebug() << "📊 Operation log saved to:" << logPath;
+          // qDebug() << "📊 Operation log saved to:" << logPath;
         } else {
           qDebug() << "❌ Failed to save operation log";
         }
@@ -293,10 +380,19 @@ void SyncTask::generateConflictReport() {
                      entry.conflictTime.toString("yyyy-MM-dd HH:mm:ss"));
           ++row;
         }
-        QString reportPath =
-            QDir(getLogDirPath()).filePath("conflict_report.xlsx");
+
+        // 调整列宽
+        xlsx.setColumnWidth(1, 30);  // Filename
+        xlsx.setColumnWidth(2, 50);  // Source Path
+        xlsx.setColumnWidth(3, 50);  // Target Path
+        xlsx.setColumnWidth(4, 40);  // Old Hash
+        xlsx.setColumnWidth(5, 40);  // New Hash
+        xlsx.setColumnWidth(6, 25);  // Conflict Time
+
+        const QString reportPath =
+            QString("%1/%2").arg(getLogDirPath(), "conflict_report.xlsx");
         if (xlsx.saveAs(reportPath)) {
-          qDebug() << "📄 Conflict report saved to:" << reportPath;
+          // qDebug() << "📄 Conflict report saved to:" << reportPath;
         } else {
           qDebug() << "❌ Failed to save conflict report";
         }
@@ -314,14 +410,14 @@ void SyncTask::ensureDirectoryExists(const QString &path) {
 
 QString SyncTask::getLogDirPath() const {
   // 日志目录放在程序运行目录下
-  return QDir::current().filePath(
-      QString("%1/%2").arg(LOG_DIR).arg(taskTimestamp));
+  return QString("%1/%2/%3")
+      .arg(QCoreApplication::applicationDirPath(), LOG_DIR, taskTimestamp);
 }
 
 QString SyncTask::getConflictDirPath() const {
   // 冲突目录放在程序运行目录下
-  return QDir::current().filePath(
-      QString("%1/%2").arg(CONFLICT_DIR).arg(taskTimestamp));
+  return QString("%1/%2/%3")
+      .arg(QCoreApplication::applicationDirPath(), CONFLICT_DIR, taskTimestamp);
 }
 
 void SyncTask::logOperation(const QString &type, const QString &source,
@@ -338,4 +434,48 @@ void SyncTask::logOperation(const QString &type, const QString &source,
   log.status = success ? "SUCCESS" : "FAILED";
   log.errorMessage = error;
   operationLogs.append(log);
+}
+
+bool SyncTask::shouldExclude(const QString &relativePath) const {
+  if (!rulesParser) return false;
+
+  // 检查是否匹配排除的目录规则
+  for (const QString &dir : rulesParser->getExcludeDirs()) {
+    if (relativePath.contains(dir, Qt::CaseInsensitive)) return true;
+  }
+  // 检查是否匹配排除的文件扩展名规则
+  for (const QString &ext : rulesParser->getExcludeExts()) {
+    if (relativePath.endsWith(ext, Qt::CaseInsensitive)) return true;
+  }
+  return false;
+}
+
+void SyncTask::autoCleanWorkingDir(const QString &, const QString &,
+                                   const QString &) const {
+  // 获取冲突目录路径（例如
+  // D:/Coding/CLionProjects/FilesSync/build/src/conflicts/20250303_001328/）
+  QDir conflictDir(getConflictDirPath());
+
+  // 获取日志目录路径（例如
+  // D:/Coding/CLionProjects/FilesSync/build/src/logs/20250303_001328/）
+  QDir logDir(getLogDirPath());
+
+  // 检查冲突目录是否存在
+  if (!conflictDir.exists()) {
+    return;
+  }
+
+  // 检查冲突目录是否为空
+  const QStringList conflictEntries =
+      conflictDir.entryList(QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot);
+  if (conflictEntries.isEmpty()) {
+    // 删除冲突目录
+    if (!conflictDir.removeRecursively()) {
+      return;
+    }
+    // 删除日志目录
+    if (logDir.exists())
+      if (!logDir.removeRecursively()) {
+      }
+  }
 }
